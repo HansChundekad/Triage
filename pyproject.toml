@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "triage"
+version = "0.1.0"
+description = "Autonomous bug-reproduction agent — UC Berkeley AI Hackathon 2026"
+requires-python = ">=3.11"
+dependencies = [
+    # --- Installed in Phase 1 (config loader + tests need these) ---
+    "python-dotenv>=1.0",
+    # --- Listed for later phases; NOT imported yet. Versions verified
+    #     against live docs in the phase that first uses each. ---
+    "anthropic",                                  # Claude reasoning (all agents)
+    "httpx",                                      # GitHub issue fetch (ParserAgent)
+    "band-sdk",                                   # Band coordination (Phase: Band)
+    "stagehand",                                  # Browserbase driver (ReproAgent)
+    "arize-phoenix",                              # tracing (Phase: Arize)
+    "openinference-instrumentation-anthropic",    # auto-instrument Claude calls
+    "opentelemetry-sdk",                          # manual retry spans
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["triage"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

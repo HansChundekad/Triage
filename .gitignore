@@ -1,0 +1,27 @@
+# Secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Claude Code tooling (keep first commit clean)
+.claude/
+.agents/
+.impeccable/
+skills-lock.json
+
+# SDD scratch
+.superpowers/
