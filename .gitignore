@@ -25,3 +25,7 @@ skills-lock.json
 
 # SDD scratch
 .superpowers/
+
+# Run artifacts (per-run reports, screenshots, session data) + TS build cache
+.triage_runs/
+*.tsbuildinfo
