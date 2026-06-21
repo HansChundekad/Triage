@@ -1,12 +1,8 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from triage.repro_agent.echo import (
-    format_result_message,
-    _sender_is_hypothesis,
-    handle_parser_message,
-)
+from triage.repro_agent.echo import format_result_message, make_repro_callback
 from triage.shared.band import ReproResultPayload
 
 
@@ -36,13 +32,6 @@ def test_format_result_message_bug_not_reproduced():
     assert "xyz" in msg
 
 
-def test_sender_is_hypothesis():
-    assert _sender_is_hypothesis("hanschundekad/hypothesisagent") is True
-    assert _sender_is_hypothesis("HypothesisAgent") is True
-    assert _sender_is_hypothesis("hanschundekad/parseragent") is False
-    assert _sender_is_hypothesis(None) is False
-
-
 class _FakeAgent:
     name = "ReproAgent"
 
@@ -57,15 +46,26 @@ class _FakeAgent:
         self.events.append((content, event_type))
 
 
-def _msg(sender_name):
+def _cfg():
     return SimpleNamespace(
-        sender_name=sender_name,
-        sender_id="peer-id",
+        band_parser=SimpleNamespace(agent_id="parser-id"),
+        band_hypothesis=SimpleNamespace(agent_id="hypo-id"),
+    )
+
+
+def _parser_msg():
+    return SimpleNamespace(
+        sender_name="hanschundekad/parseragent", sender_id="parser-id",
         chat_room_id="room-id",
-        content=(
-            "@ReproAgent repro steps for url:\n"
-            "1. Open app\n2. Add todo\n3. Delete it\n4. Observe blank screen"
-        ),
+        content="@ReproAgent steps:\n1. Open app\n2. Add todo\n3. Delete it",
+    )
+
+
+def _redirect_msg():
+    return SimpleNamespace(
+        sender_name="hanschundekad/hypothesisagent", sender_id="hypo-id",
+        chat_room_id="room-id",
+        content="@hanschundekad/reproagent retry with a slower delete (suspected cause: race)",
     )
 
 
@@ -78,51 +78,54 @@ def _fake_result():
     )
 
 
-def test_handler_sends_one_message_to_hypothesis():
+def test_parser_steps_trigger_one_attempt():
     agent = _FakeAgent()
-    fake_cfg = MagicMock()
+    cb = make_repro_callback(_cfg())
     fake_run = AsyncMock(return_value=_fake_result())
-    with (
-        patch("triage.repro_agent.echo.load_config", return_value=fake_cfg),
-        patch("triage.repro_agent.echo.run_repro", new=fake_run),
-    ):
-        asyncio.run(handle_parser_message(_msg("hanschundekad/parseragent"), agent))
-    assert len(agent.messages) == 1
-    mentions, text = agent.messages[0]
-    assert mentions == ["HypothesisAgent"]
-    assert "@hanschundekad/hypothesisagent" in text
-    # steps were parsed from the numbered block and passed positionally
-    called_steps = fake_run.call_args.args[1]
-    assert called_steps == ["Open app", "Add todo", "Delete it", "Observe blank screen"]
-    assert len(agent.events) == 2            # "Starting…" + "Repro complete…"
-    assert agent.events[0][1] == "task"
-    assert agent.events[1][1] == "task"
+    with patch("triage.repro_agent.echo.run_repro", new=fake_run):
+        asyncio.run(cb(_parser_msg(), agent))
+    assert fake_run.call_args.args[1] == ["Open app", "Add todo", "Delete it"]
+    assert [m[0] for m in agent.messages] == [["HypothesisAgent"]]
 
 
-def test_handler_ignores_hypothesis_sender():
+def test_redirect_spawns_a_second_attempt_with_tweak():
     agent = _FakeAgent()
-    asyncio.run(handle_parser_message(_msg("hanschundekad/hypothesisagent"), agent))
-    assert agent.messages == []              # no echo of a Hypothesis reply
-    assert agent.events == []
+    cb = make_repro_callback(_cfg())
+    fake_run = AsyncMock(return_value=_fake_result())
+    with patch("triage.repro_agent.echo.run_repro", new=fake_run):
+        asyncio.run(cb(_parser_msg(), agent))      # attempt 1
+        asyncio.run(cb(_redirect_msg(), agent))    # attempt 2 (retry)
+    assert fake_run.call_count == 2
+    # second call carried the extracted tweak
+    assert fake_run.call_args_list[1].kwargs.get("tweak") == "retry with a slower delete"
+    # two results posted @HypothesisAgent (one per attempt)
+    assert len(agent.messages) == 2
 
 
-def test_handler_browser_error_still_reports():
-    """If run_repro raises, handler catches, sends error event, still messages HypothesisAgent."""
+def test_redirect_before_any_steps_is_ignored():
     agent = _FakeAgent()
-    fake_cfg = MagicMock()
-    with (
-        patch("triage.repro_agent.echo.load_config", return_value=fake_cfg),
-        patch(
-            "triage.repro_agent.echo.run_repro",
-            new=AsyncMock(side_effect=RuntimeError("CDP timeout")),
-        ),
+    cb = make_repro_callback(_cfg())
+    fake_run = AsyncMock(return_value=_fake_result())
+    with patch("triage.repro_agent.echo.run_repro", new=fake_run):
+        asyncio.run(cb(_redirect_msg(), agent))
+    # no steps yet -> nothing to retry
+    assert fake_run.call_count == 0
+    assert agent.messages == []
+
+
+def test_attempt_browser_error_still_reports():
+    """If run_repro raises, the attempt catches, sends an error event, and still
+    messages HypothesisAgent with a BUG NOT REPRODUCED result."""
+    agent = _FakeAgent()
+    cb = make_repro_callback(_cfg())
+    with patch(
+        "triage.repro_agent.echo.run_repro",
+        new=AsyncMock(side_effect=RuntimeError("CDP timeout")),
     ):
-        asyncio.run(handle_parser_message(_msg("hanschundekad/parseragent"), agent))
+        asyncio.run(cb(_parser_msg(), agent))
     assert len(agent.messages) == 1
     mentions, text = agent.messages[0]
     assert mentions == ["HypothesisAgent"]
     assert "BUG NOT REPRODUCED" in text
-    # events: "Starting…", "Browser execution error: …", "Repro complete…"
     event_types = [ev[1] for ev in agent.events]
-    assert "task" in event_types
     assert "error" in event_types
