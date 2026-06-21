@@ -180,9 +180,12 @@ to `phoenix` to fall back to the still-working Phoenix path. Rollback tag:
 - Selector seam `triage/memory/history.py`; `PriorAttempt` contract `types.py`.
   `distill_hint`, `load_learned_context`, parser/driver injections — unchanged.
 
-> **AX index lag:** by-`--trace-id` lookups are immediate (primary store); filter/time
-> queries lag ~6–12h and eval **visibility** lags ~1–2h. Eval/span **writes** are
-> immediate — only read-back/UI visibility lags.
+> **AX read latency (measured 2026-06-21):** by-`--trace-id`/by-span-id reads hit the
+> primary store and are near-instant — eval write→visible measured at **~2s**. The
+> "~6–12h / ~1–2h" figures in the Arize docs are worst-case for the *aggregate index*
+> behind filter/time-range/task queries on large projects; here filter read-back lands
+> in minutes. A judge opening a specific trace sees spans + evals in seconds. Evals show
+> in the CLI export under a top-level `evaluations` array (not `eval.*` attributes).
 
 **Verify.** `.venv/bin/pytest` (153). Live: `load_learned_context` returns a real
 hint from prior Phoenix traces. Booth A/B at the demo: `TRIAGE_OUTER_LOOP=1` →

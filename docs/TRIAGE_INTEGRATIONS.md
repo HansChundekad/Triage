@@ -247,7 +247,9 @@ client.spans.update_evaluations(space_id=ARIZE_SPACE_ID, project_name="triage-bu
 
 TRIAGE reads prior runs via the **`ax` CLI** (`triage/memory/backends/ax.py`) and logs the in-code judge results via `spans.update_evaluations` (`triage/eval/run_eval.py`), keyed by span-ids captured in-process at span creation.
 
-> **AX index lag (R-LAG):** the time-series query index lags ~6–12h and the eval index ~1–2h. By-`--trace-id` lookups hit the primary store and are immediate (use them to verify ingestion); filter/time-range queries and eval **visibility** lag. The eval *write* (`update_evaluations`) is immediate and authoritative regardless.
+> **AX read paths (measured 2026-06-21):** a direct **by-`--trace-id`/by-span-id** read hits the primary store and is **near-instant** — eval write→visible measured at **~2s**, spans immediately. The big "~6–12h time-series / ~1–2h eval index" figures in the Arize docs are the **worst-case for the aggregate index** that backs *filter/time-range/task* queries on large projects; on a small project even filter read-back lands in minutes. So a judge clicking a specific trace sees spans + evals in seconds; only aggregate/dashboard rollups may trail. Eval writes (`update_evaluations`) are immediate and authoritative regardless.
+>
+> **Where evals appear in the export:** the `ax spans export` JSON puts evals under a **top-level `evaluations`** array per span (`[{"name","score","label","explanation"}]`), *not* as `eval.<name>.*` keys inside `attributes`.
 
 ### 4.1c Verifying with the `ax` CLI
 
