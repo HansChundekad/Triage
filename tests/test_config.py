@@ -72,3 +72,24 @@ def test_phoenix_endpoint_override(monkeypatch):
     monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006")
     cfg = load_config(load_env=False)
     assert cfg.phoenix_collector_endpoint == "http://localhost:6006"
+
+
+def test_band_room_id_optional(monkeypatch):
+    _set_all(monkeypatch)
+    monkeypatch.delenv("BAND_ROOM_ID", raising=False)
+    cfg = load_config(load_env=False)
+    assert cfg.band_room_id is None
+
+
+def test_band_room_id_loaded_when_set(monkeypatch):
+    _set_all(monkeypatch)
+    monkeypatch.setenv("BAND_ROOM_ID", "some-room-uuid")
+    cfg = load_config(load_env=False)
+    assert cfg.band_room_id == "some-room-uuid"
+
+
+def test_band_room_id_empty_string_is_none(monkeypatch):
+    _set_all(monkeypatch)
+    monkeypatch.setenv("BAND_ROOM_ID", "")
+    cfg = load_config(load_env=False)
+    assert cfg.band_room_id is None

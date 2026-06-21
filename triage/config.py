@@ -39,6 +39,7 @@ class Config:
     band_hypothesis: BandIdentity
     phoenix_api_key: str
     phoenix_collector_endpoint: str
+    band_room_id: str | None
     app_url: str
     github_issue_url: str
 
@@ -102,6 +103,7 @@ def load_config(load_env: bool = True) -> Config:
         phoenix_collector_endpoint=env.get(
             "PHOENIX_COLLECTOR_ENDPOINT", _PHOENIX_ENDPOINT_DEFAULT
         ),
+        band_room_id=env.get("BAND_ROOM_ID") or None,
         app_url=env["TRIAGE_APP_URL"],
         github_issue_url=env["TRIAGE_GITHUB_ISSUE_URL"],
     )
