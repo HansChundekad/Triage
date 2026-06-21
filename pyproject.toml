@@ -17,9 +17,12 @@ dependencies = [
     "band-sdk",                                   # Band coordination (Phase: Band)
     "stagehand",                                  # Browserbase driver (ReproAgent)
     "playwright",                                  # CDP screenshots + console errors (ReproAgent)
-    "arize-phoenix",                              # tracing (Phase: Arize)
-    "openinference-instrumentation-anthropic",    # auto-instrument Claude calls
-    "opentelemetry-sdk",                          # manual retry spans
+    "arize-phoenix>=17.9",                        # tracing (Phase: Arize) — verified 2026-06-20
+    "openinference-instrumentation-anthropic>=1.0.6",  # auto-instrument Claude calls
+    "opentelemetry-sdk>=1.42",                    # manual retry spans
+    "arize-phoenix-evals>=3.1",                   # LLM-judge evaluator (Phase 7B) — verified 2026-06-20
+    "arize-phoenix-client>=2.9",                  # log_span_annotations_dataframe (Phase 7B)
+    "pandas>=2.0",                                # eval dataframes (Phase 7B)
 ]
 
 [project.optional-dependencies]

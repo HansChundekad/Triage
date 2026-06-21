@@ -71,7 +71,16 @@ def detect_bug(body_text: str, console_errors: list[str]) -> DetectionResult:
 # ---------------------------------------------------------------------------
 
 
-async def run_repro(cfg: "Config", steps: list[str], tweak: str | None = None) -> ReproResultPayload:
+async def run_repro(
+    cfg: "Config",
+    steps: list[str],
+    tweak: str | None = None,
+    *,
+    run_trace=None,
+    artifacts=None,
+    attempt: int = 1,
+    browser_execution_span=None,
+) -> ReproResultPayload:
     """Open a fresh Browserbase session, execute `steps`, return evidence.
 
     `steps` are natural-language instructions from ParserAgent (one Stagehand
@@ -92,6 +101,11 @@ async def run_repro(cfg: "Config", steps: list[str], tweak: str | None = None) -
     """
     from stagehand import AsyncStagehand
     from playwright.async_api import async_playwright
+
+    from triage.tracing.run_context import NullRunTrace, set_span_ok
+    from triage.tracing.artifacts import NullRunArtifacts
+    run_trace = run_trace if run_trace is not None else NullRunTrace()
+    artifacts = artifacts if artifacts is not None else NullRunArtifacts()
 
     session_id: str = ""
     session_url: str = ""
@@ -143,46 +157,61 @@ async def run_repro(cfg: "Config", steps: list[str], tweak: str | None = None) -
 
             # --- 4. Execute repro steps: observe → act → screenshot ---
             for index, step in enumerate(steps, start=1):
-                step_label = f"step {index}: {step[:48]}"
-                act_instr = step if not tweak else f"{step}. Adjustment for this retry: {tweak}"
-                logger.info("[ReproAgent] %s", step_label)
+                with run_trace.child_span("stagehand_action", browser_execution_span) as step_span:
+                    step_label = f"step {index}: {step[:48]}"
+                    act_instr = step if not tweak else f"{step}. Adjustment for this retry: {tweak}"
+                    logger.info("[ReproAgent] %s", step_label)
 
-                obs = await session.observe(instruction=step)
-                found = obs.data.result
-                if not found:
-                    msg = f"{step_label}: observe found no elements for: {step!r}"
-                    logger.warning("[ReproAgent] %s", msg)
-                    evidence.append(f"WARN — {msg}")
-                else:
-                    evidence.append(f"{step_label}: found {len(found)} element(s)")
+                    obs = await session.observe(instruction=step)
+                    found = obs.data.result
+                    if not found:
+                        msg = f"{step_label}: observe found no elements for: {step!r}"
+                        logger.warning("[ReproAgent] %s", msg)
+                        evidence.append(f"WARN — {msg}")
+                    else:
+                        evidence.append(f"{step_label}: found {len(found)} element(s)")
 
-                act_result = await session.act(input=act_instr)
-                act_ok = act_result.data.result.success
-                act_msg = act_result.data.result.message
-                evidence.append(
-                    f"{step_label} act: {'OK' if act_ok else 'FAIL'} — {act_msg}"
-                )
-                logger.info(
-                    "[ReproAgent] act '%s': %s — %s",
-                    step_label,
-                    "OK" if act_ok else "FAIL",
-                    act_msg,
-                )
-
-                # Screenshot after each step
-                await asyncio.sleep(0.5)  # brief settle before capture
-                try:
-                    screenshot_bytes = await page.screenshot()
-                    b64 = base64.b64encode(screenshot_bytes).decode()
-                    screenshots.append(b64)
+                    act_result = await session.act(input=act_instr)
+                    act_ok = act_result.data.result.success
+                    act_msg = act_result.data.result.message
                     evidence.append(
-                        f"Screenshot after '{step_label}': captured ({len(screenshot_bytes)} bytes)"
+                        f"{step_label} act: {'OK' if act_ok else 'FAIL'} — {act_msg}"
                     )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "[ReproAgent] screenshot failed after '%s': %s", step_label, exc
+                    logger.info(
+                        "[ReproAgent] act '%s': %s — %s",
+                        step_label,
+                        "OK" if act_ok else "FAIL",
+                        act_msg,
                     )
-                    evidence.append(f"Screenshot after '{step_label}': FAILED — {exc}")
+
+                    # Screenshot after each step
+                    await asyncio.sleep(0.5)  # brief settle before capture
+                    screenshot_ref = ""
+                    try:
+                        screenshot_bytes = await page.screenshot()
+                        b64 = base64.b64encode(screenshot_bytes).decode()
+                        screenshots.append(b64)
+                        screenshot_ref = artifacts.save_screenshot(attempt, index, b64)
+                        evidence.append(
+                            f"Screenshot after '{step_label}': captured ({len(screenshot_bytes)} bytes)"
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "[ReproAgent] screenshot failed after '%s': %s", step_label, exc
+                        )
+                        evidence.append(f"Screenshot after '{step_label}': FAILED — {exc}")
+
+                    if step_span is not None:
+                        last_err = next(
+                            (e for e in reversed(console_errors) if CRASH_SUBSTRING in e),
+                            console_errors[-1] if console_errors else "",
+                        )
+                        step_span.set_attribute("step.index", index)
+                        step_span.set_attribute("step.text", step)
+                        step_span.set_attribute("action.success", bool(act_ok))
+                        step_span.set_attribute("screenshot.ref", screenshot_ref)
+                        step_span.set_attribute("console.error", last_err)
+                        set_span_ok(step_span, bool(act_ok))
 
             # --- 5. Extract body text for blank-page detection ---
             try:
