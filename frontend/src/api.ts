@@ -21,6 +21,7 @@ export function startLiveRun(
 ): () => void {
   let source: EventSource | null = null;
   let cancelled = false;
+  const close = () => { cancelled = true; source?.close(); };
 
   fetch(`${apiBase}/api/runs`, {
     method: "POST",
@@ -36,9 +37,11 @@ export function startLiveRun(
       source = new EventSource(`${apiBase}/api/runs/${runId}/stream`);
       for (const t of STREAM_TYPES) {
         source.addEventListener(t, (ev) => {
-          const data = JSON.parse((ev as MessageEvent).data);
-          onEvent({ type: t, ...data } as StreamEvent);
-          if (t === "report" || t === "error") source?.close();
+          let data: unknown;
+          try { data = JSON.parse((ev as MessageEvent).data); }
+          catch { onEvent({ type: "error", message: "malformed stream frame" }); close(); return; }
+          onEvent({ type: t, ...(data as object) } as StreamEvent);
+          if (t === "report" || t === "error") close();
         });
       }
       source.onerror = () => {
@@ -49,8 +52,5 @@ export function startLiveRun(
       if (!cancelled) onEvent({ type: "error", message: String(e.message ?? e) });
     });
 
-  return () => {
-    cancelled = true;
-    source?.close();
-  };
+  return () => { close(); };
 }
