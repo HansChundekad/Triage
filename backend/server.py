@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 
@@ -25,7 +24,7 @@ class RunRequest(BaseModel):
 
 
 @app.post("/api/runs")
-def start_run(req: RunRequest):
+async def start_run(req: RunRequest):
     if not ISSUE_RE.match(req.issueUrl.strip()):
         raise HTTPException(422, "not a GitHub issue URL")
     return {"runId": _registry.create(req.issueUrl.strip())}
@@ -41,6 +40,8 @@ def snapshot(run_id: str):
 
 @app.get("/api/runs/{run_id}/stream")
 async def stream(run_id: str):
+    if not _registry.has(run_id):
+        raise HTTPException(404, "unknown run")
     async def gen():
         async for name, data in _registry.stream(run_id):
             yield {"event": name, "data": json.dumps(data)}

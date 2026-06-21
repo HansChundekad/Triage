@@ -125,6 +125,9 @@ class RunRegistry:
         asyncio.create_task(self._drive(run))
         return run_id
 
+    def has(self, run_id: str) -> bool:
+        return run_id in self._runs
+
     def snapshot(self, run_id: str) -> dict:
         run = self._runs[run_id]
         return {"runId": run_id, "done": run.done, "events": [d for _, d in run.buffer]}
@@ -175,8 +178,7 @@ class RunRegistry:
             while not state.terminal and time.monotonic() < deadline:
                 await asyncio.sleep(1)
 
-            report = _build_report(run)
-            await run.emit("report", report)
+            await run.emit("report", report_event_data(run))
 
             for a in (parser, hypothesis, repro):
                 await a.disconnect()
@@ -226,3 +228,9 @@ def _build_report(run: _Run) -> dict:
         "attempts": attempts,
         "consoleErrors": [],
     }
+
+
+def report_event_data(run: "_Run") -> dict:
+    """SSE `data` for the report event: wraps RunReport so the frontend's
+    {type:"report", ...data} spread yields {type:"report", report: RunReport}."""
+    return {"report": _build_report(run)}
