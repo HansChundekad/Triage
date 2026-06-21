@@ -250,8 +250,10 @@ async def main(force_retry: bool = False) -> int:
         print("\n  📊 Arize AX — open the hero trace now:")
         print(f"     project : {cfg.arize_project_name}  (backend: {cfg.trace_backend})")
         print(f"     trace_id: {run.trace_id}")
-        print("     → newest 'triage_run' trace = two repro_attempt spans, per-step")
-        print("       spans under both, and two distinct eval scores.\n")
+        n = len(all_attempts)
+        plural = "s" if n != 1 else ""
+        print(f"     → newest 'triage_run' trace = {n} repro_attempt span{plural} with")
+        print("       per-step child spans and eval scores on each.\n")
 
         await parser.disconnect()
         await hypothesis.disconnect()
