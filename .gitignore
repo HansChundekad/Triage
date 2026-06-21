@@ -29,3 +29,4 @@ skills-lock.json
 # Run artifacts (per-run reports, screenshots, session data) + TS build cache
 .triage_runs/
 *.tsbuildinfo
+.arize-tmp-traces/
