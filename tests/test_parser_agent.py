@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 from triage.parser_agent.agent import format_steps_message, sender_agent_name
@@ -26,6 +27,18 @@ def test_format_steps_message_mentions_repro_and_numbers_steps():
     assert "1. Add a task named test" in msg
     assert "2. Delete the task" in msg
     assert "3. Confirm deletion" in msg
+
+
+def test_format_steps_message_empty_steps_is_header_only():
+    payload = ReproStepsPayload(
+        issue_url="https://github.com/o/r/issues/7",
+        steps=[],
+    )
+    msg = format_steps_message(payload)
+
+    assert msg.startswith("@ReproAgent")
+    assert "https://github.com/o/r/issues/7" in msg
+    assert not any(re.match(r"^\s*\d+\.\s+", line) for line in msg.splitlines())
 
 
 def test_sender_agent_name_maps_known_ids():
