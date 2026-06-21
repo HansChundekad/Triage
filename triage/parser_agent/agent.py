@@ -49,13 +49,14 @@ async def post_initial_steps(
     agent,
     issue_cache: dict,
     run_trace=None,
+    prior_context: str | None = None,
 ) -> None:
     """Fetch the configured issue, parse it, and post the steps @ReproAgent."""
     trace = run_trace if run_trace is not None else NullRunTrace()
     issue = await fetch_issue(cfg.github_issue_url, http_client=http_client)
     issue_cache["issue"] = issue
     with trace.claude_span("parser_extract_steps"):
-        payload = await extract_steps(issue, client=anthropic_client)
+        payload = await extract_steps(issue, client=anthropic_client, prior_context=prior_context)
     text = format_steps_message(payload)
     logger.info("[ParserAgent] posting %d steps @ReproAgent", len(payload.steps))
     await agent.send_message(["ReproAgent"], text)

@@ -59,13 +59,21 @@ _STEPS_SCHEMA = {
 }
 
 
-def build_user_prompt(issue: Issue, redirect: str | None = None) -> str:
-    """Render the user-turn prompt from the issue (plus optional redirect)."""
+def build_user_prompt(issue: Issue, redirect: str | None = None,
+                      *, prior_context: str | None = None) -> str:
+    """Render the user-turn prompt from the issue (plus optional learned memory / redirect)."""
     prompt = (
         f"GitHub issue title: {issue.title}\n\n"
         f"GitHub issue body:\n{issue.body}\n\n"
         "Produce the ordered reproduction steps."
     )
+    if prior_context:
+        prompt += (
+            "\n\nLearned context from prior reproduction runs of this same issue:\n"
+            f"{prior_context}\n\n"
+            "Use this memory to pick a smarter first attempt — set up any required "
+            "preconditions up front rather than discovering them through a failure."
+        )
     if redirect:
         prompt += (
             "\n\nA previous attempt to reproduce these steps failed. Feedback "
@@ -81,6 +89,7 @@ async def extract_steps(
     *,
     client,
     redirect: str | None = None,
+    prior_context: str | None = None,
 ) -> ReproStepsPayload:
     """Call Claude to extract structured repro steps from the issue.
 
@@ -88,6 +97,7 @@ async def extract_steps(
         issue: the fetched GitHub issue.
         client: an AsyncAnthropic client (injected for testability).
         redirect: optional feedback from a failed repro, woven into the prompt.
+        prior_context: optional learned memory from prior runs, woven into the prompt.
     """
     response = await client.messages.create(
         model=_MODEL,
@@ -95,7 +105,8 @@ async def extract_steps(
         thinking={"type": "adaptive"},
         system=_SYSTEM,
         output_config={"format": {"type": "json_schema", "schema": _STEPS_SCHEMA}},
-        messages=[{"role": "user", "content": build_user_prompt(issue, redirect)}],
+        messages=[{"role": "user",
+                   "content": build_user_prompt(issue, redirect, prior_context=prior_context)}],
     )
     text = next(block.text for block in response.content if block.type == "text")
     data = json.loads(text)
