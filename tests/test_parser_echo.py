@@ -57,3 +57,62 @@ def test_sender_agent_name_maps_known_ids():
 
 def test_sender_agent_name_returns_none_for_unknown():
     assert sender_agent_name("nobody", _fake_cfg()) is None
+
+
+import asyncio
+
+import pytest
+
+from triage.parser_agent.echo import make_on_message
+
+
+class _FakeAgent:
+    """Captures send_message calls instead of hitting Band."""
+
+    def __init__(self) -> None:
+        self.name = "ParserAgent"
+        self.sent: list[tuple[list[str], str]] = []
+
+    async def send_message(self, mentions, text) -> None:
+        self.sent.append((list(mentions), text))
+
+
+def _msg(sender_id: str, sender_name: str, content: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        sender_id=sender_id, sender_name=sender_name, content=content
+    )
+
+
+def test_on_message_acks_repro_sender():
+    cfg = _fake_cfg()
+    agent = _FakeAgent()
+    cb = make_on_message(cfg)
+
+    asyncio.run(cb(_msg("repro-id", "ReproAgent", "ping"), agent))
+
+    assert len(agent.sent) == 1
+    mentions, text = agent.sent[0]
+    assert mentions == ["ReproAgent"]
+    assert "@ReproAgent" in text
+
+
+def test_on_message_acks_hypothesis_sender():
+    cfg = _fake_cfg()
+    agent = _FakeAgent()
+    cb = make_on_message(cfg)
+
+    asyncio.run(cb(_msg("hypothesis-id", "HypothesisAgent", "retry pls"), agent))
+
+    assert len(agent.sent) == 1
+    mentions, _ = agent.sent[0]
+    assert mentions == ["HypothesisAgent"]
+
+
+def test_on_message_does_not_ack_unknown_sender():
+    cfg = _fake_cfg()
+    agent = _FakeAgent()
+    cb = make_on_message(cfg)
+
+    asyncio.run(cb(_msg("stranger", "Someone", "hello"), agent))
+
+    assert agent.sent == []

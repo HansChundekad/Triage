@@ -5,7 +5,11 @@ only: hardcoded placeholder steps, no real parsing (that is Phase 5).
 """
 from __future__ import annotations
 
+import logging
+
 from triage.shared.band import AgentName, ReproStepsPayload
+
+logger = logging.getLogger(__name__)
 
 # Hardcoded placeholder steps — Phase 3 does NOT parse anything real.
 PLACEHOLDER_STEPS: list[str] = [
@@ -46,3 +50,25 @@ def sender_agent_name(sender_id: str, cfg) -> AgentName | None:
         cfg.band_hypothesis.agent_id: "HypothesisAgent",
     }
     return by_id.get(sender_id)
+
+
+def make_on_message(cfg):
+    """Build the async on_message callback ParserAgent passes to BandAgent.
+
+    Logs the sender + content, and acks the sender via @mention when the
+    sender is a known agent (ReproAgent / HypothesisAgent). Unknown or
+    unmappable senders are logged but not acked.
+    """
+
+    async def on_message(payload, agent) -> None:
+        name = sender_agent_name(payload.sender_id, cfg) or payload.sender_name
+        print(f"[ParserAgent] << received from {name}: {payload.content!r}")
+        logger.info("ParserAgent received from %s: %s", name, payload.content)
+
+        target = sender_agent_name(payload.sender_id, cfg)
+        if target in ("ReproAgent", "HypothesisAgent"):
+            ack = f"@{target} ack — ParserAgent received your message (echo)."
+            print(f"[ParserAgent] >> ack to {target}: {ack!r}")
+            await agent.send_message([target], ack)
+
+    return on_message
