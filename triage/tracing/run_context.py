@@ -28,6 +28,10 @@ class RunTrace:
         self._app_url = app_url
         self._root = None
         self._root_ctx = None
+        # {attempt_number: span_id_hex} captured in-process at span creation, so
+        # eval logging can attach to the live AX spans without a (lagging)
+        # query-back. Mirrors the old _phoenix_span_lookup number->sid mapping.
+        self.span_ids: dict[int, str] = {}
 
     def __enter__(self) -> "RunTrace":
         self._root = self._tracer.start_span("triage_run")
@@ -48,6 +52,9 @@ class RunTrace:
     def attempt_span(self, number: int):
         span = self._tracer.start_span("repro_attempt", context=self._root_ctx)
         span.set_attribute("attempt.number", number)
+        # Record the span id (16-hex, lowercase — AX context.span_id format) so the
+        # evaluator can log onto this exact span later without querying it back.
+        self.span_ids[number] = format(span.get_span_context().span_id, "016x")
         try:
             yield span
         finally:
@@ -75,6 +82,8 @@ class RunTrace:
 
 class NullRunTrace:
     """No-op RunTrace for the untraced/test path. Same interface."""
+
+    span_ids: dict[int, str] = {}
 
     def __enter__(self) -> "NullRunTrace":
         return self

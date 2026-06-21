@@ -139,6 +139,7 @@ async def main(force_retry: bool = False) -> int:
             from triage.eval.run_eval import run_eval
 
             scored = run_eval(cfg, repro_state, artifacts,
+                              span_lookup=run.span_ids,
                               hypothesis_root_cause=diagnosis["text"])
             if scored.empty:
                 print("[phase7] eval: no attempts to score")

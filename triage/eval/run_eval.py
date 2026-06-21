@@ -1,4 +1,13 @@
-"""Per-attempt scoring + logging onto repro_attempt spans (modern phoenix.client).
+"""Per-attempt scoring + logging onto repro_attempt spans.
+
+The JUDGE ENGINE stays on `phoenix.evals` (`create_classifier` / `evaluate_dataframe`
+/ `LLM`) — a LOCAL LLM-as-judge library that never talks to Phoenix Cloud, so it is
+backend-agnostic and unchanged by the Phoenix->AX migration. Only the *logging* of
+results onto spans is backend-specific:
+  - AX (primary): `build_eval_records` builds an `eval.<name>.label/.score/.explanation`
+    dataframe keyed by `context.span_id` (from the in-process span-id capture) and
+    `spans.update_evaluations` writes it (Arrow Flight, no lagging query-back).
+  - Phoenix (fallback): `_phoenix_span_lookup` + `_log_to_spans` (annotations).
 
 DRIFT NOTE (arize-phoenix-evals 3.1.0 / arize-phoenix-client 2.9.0):
 `evaluate_dataframe(dataframe, evaluators)` does NOT return flat label/score
@@ -128,10 +137,68 @@ def run_eval(cfg, repro_state, artifacts, *, span_lookup=None, hypothesis_root_c
     scored["honesty_score"] = [h.score for h in honesty]
     scored["honesty_explanation"] = [h.explanation for h in honesty]
 
-    if span_lookup is None:
-        span_lookup = _phoenix_span_lookup(cfg)
-    _log_to_spans(scored, span_lookup)
+    # Log the judge results onto the live spans. AX (primary): build eval.* records
+    # from the in-process span-id capture and write them via spans.update_evaluations
+    # (Flight write by context.span_id — no lagging query-back). Phoenix (fallback):
+    # the original annotation path. Logging is best-effort: a write failure must
+    # never lose the computed `scored` the synthesis/report still needs.
+    backend = getattr(cfg, "trace_backend", "ax")
+    try:
+        if backend == "phoenix":
+            lookup = span_lookup if span_lookup is not None else _phoenix_span_lookup(cfg)
+            _log_to_spans(scored, lookup)
+        else:
+            eval_df = build_eval_records(scored, span_lookup or {})
+            if not eval_df.empty:
+                _log_to_ax(cfg, eval_df)
+    except Exception as exc:  # noqa: BLE001 — eval logging must never wedge a run
+        import logging
+        logging.getLogger(__name__).warning("[eval] span logging skipped (non-fatal): %s", exc)
     return scored
+
+
+def _eval_float(x):
+    """Coerce a score cell to float or None (AX tolerates a missing score). Pure."""
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return None
+    return float(x)
+
+
+def build_eval_records(scored, span_lookup) -> pd.DataFrame:
+    """Build the AX `spans.update_evaluations` dataframe from scored attempts. Pure.
+
+    One row per attempt that has a captured span id, with `context.span_id` plus the
+    first-class `eval.<name>.label/.score(/.explanation)` columns AX renders as
+    Evaluations. Attempts with no span id in `span_lookup` are dropped.
+    """
+    rows = []
+    for _, r in scored.iterrows():
+        sid = span_lookup.get(int(r["attempt_number"]))
+        if not sid:
+            continue
+        rows.append({
+            "context.span_id": sid,
+            "eval.repro_fidelity.label": r["repro_fidelity_label"],
+            "eval.repro_fidelity.score": _eval_float(r["repro_fidelity_score"]),
+            "eval.root_cause_correctness.label": r["root_cause_label"],
+            "eval.root_cause_correctness.score": _eval_float(r["root_cause_score"]),
+            "eval.honesty.label": r["honesty_label"],
+            "eval.honesty.score": _eval_float(r["honesty_score"]),
+            "eval.honesty.explanation": r.get("honesty_explanation", "") if hasattr(r, "get") else r["honesty_explanation"],
+        })
+    return pd.DataFrame(rows)
+
+
+def _log_to_ax(cfg, eval_df):
+    """Write the eval.* dataframe onto the AX spans via spans.update_evaluations."""
+    from arize import ArizeClient
+
+    client = ArizeClient(api_key=cfg.arize_api_key)
+    client.spans.update_evaluations(
+        space_id=cfg.arize_space_id,
+        project_name=getattr(cfg, "arize_project_name", PROJECT_IDENTIFIER),
+        dataframe=eval_df,
+    )
 
 
 def _phoenix_span_lookup(cfg):
