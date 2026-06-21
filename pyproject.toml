@@ -16,6 +16,7 @@ dependencies = [
     "httpx",                                      # GitHub issue fetch (ParserAgent)
     "band-sdk",                                   # Band coordination (Phase: Band)
     "stagehand",                                  # Browserbase driver (ReproAgent)
+    "playwright",                                  # CDP screenshots + console errors (ReproAgent)
     "arize-phoenix",                              # tracing (Phase: Arize)
     "openinference-instrumentation-anthropic",    # auto-instrument Claude calls
     "opentelemetry-sdk",                          # manual retry spans
