@@ -123,6 +123,7 @@ async def run_repro(cfg: "Config") -> ReproResultPayload:
     evidence: list[str] = []
     console_errors: list[str] = []
     screenshots: list[str] = []  # base64-encoded PNGs, one per step
+    detection = DetectionResult(bug_detected=False, blank_body=False, console_match=False)
 
     client = AsyncStagehand(
         browserbase_api_key=cfg.browserbase_api_key,
