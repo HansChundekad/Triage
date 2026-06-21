@@ -142,3 +142,20 @@ def test_callback_ignores_non_reproagent(monkeypatch):
 
     assert a.sent == []
     assert called is False
+
+
+def test_callback_fail_safe_on_diagnosis_error(monkeypatch):
+    def _boom(evidence, client, model=None):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(agent_mod, "diagnose", _boom)
+    cb = make_diagnosis_callback(client=object(), repro_agent_id=REPRO_ID)
+    a = FakeAgent()
+    asyncio.run(cb(_payload(REPRO_ID), a))
+
+    # fail-safe: an error event was logged AND a retry message went to ReproAgent
+    assert any(etype == "error" for _, etype in a.events)
+    assert len(a.sent) == 1
+    mentions, text = a.sent[0]
+    assert mentions == ["ReproAgent"]
+    assert "retry" in text.lower()
