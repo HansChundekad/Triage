@@ -140,9 +140,12 @@ async def main(force_retry: bool = False) -> int:
             eval_scores = None
             if scored is not None and not scored.empty:
                 last = scored.iloc[-1]
+                fid, rc = last["repro_fidelity_score"], last["root_cause_score"]
+                # Tolerate a missing per-row score (judge failure): keep what we have
+                # so the report still writes rather than dropping on float(None).
                 eval_scores = {
-                    "repro_fidelity": float(last["repro_fidelity_score"]),
-                    "root_cause_correctness": float(last["root_cause_score"]),
+                    "repro_fidelity": float(fid) if fid is not None else None,
+                    "root_cause_correctness": float(rc) if rc is not None else None,
                 }
             report_path = synthesize_run(
                 cfg, artifacts, client=hypothesis_anthropic, issue=issue_dict,
