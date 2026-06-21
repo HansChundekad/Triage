@@ -92,6 +92,11 @@ _STEPS: list[tuple[str, str | None, str]] = [
         "find the Delete button next to the task item",
         "click the Delete button to remove the task",
     ),
+    (
+        "confirm delete",
+        "find the confirmation popup with yes and no options",
+        "click the Yes button to confirm deletion of the task",
+    ),
 ]
 
 
