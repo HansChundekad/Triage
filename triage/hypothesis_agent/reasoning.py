@@ -93,10 +93,18 @@ def diagnose(evidence_text: str, client, model: str = MODEL) -> Diagnosis:
         output_config={"format": {"type": "json_schema", "schema": RESPONSE_SCHEMA}},
     )
     text = next(
-        block.text
-        for block in response.content
-        if getattr(block, "type", None) == "text"
+        (
+            block.text
+            for block in response.content
+            if getattr(block, "type", None) == "text"
+        ),
+        None,
     )
+    if text is None:
+        raise ValueError(
+            "No text block in Claude response; blocks: "
+            f"{[getattr(b, 'type', '?') for b in response.content]}"
+        )
     data = json.loads(text)
     return Diagnosis(
         decision=data["decision"],

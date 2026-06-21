@@ -87,3 +87,29 @@ def test_diagnose_ignores_non_text_blocks():
     client.messages = SimpleNamespace(create=create)
     d = diagnose("evidence", client)
     assert d.root_cause == "ok"
+
+
+def test_diagnose_raises_when_no_text_block():
+    client = FakeClient({"decision": "confirm", "root_cause": "x", "redirect_instruction": ""})
+
+    def create(**kwargs):
+        client.calls.append(kwargs)
+        thinking = SimpleNamespace(type="thinking", thinking="...")
+        return SimpleNamespace(content=[thinking])
+
+    client.messages = SimpleNamespace(create=create)
+    with pytest.raises(ValueError, match="No text block"):
+        diagnose("evidence", client)
+
+
+def test_diagnose_parses_redirect_parser():
+    client = FakeClient(
+        {
+            "decision": "redirect_parser",
+            "root_cause": "step 3 found no Add button",
+            "redirect_instruction": "re-read the issue for the correct control name",
+        }
+    )
+    d = diagnose("verdict: BUG NOT REPRODUCED ...", client)
+    assert d.decision == "redirect_parser"
+    assert "re-read the issue" in d.redirect_instruction
