@@ -61,3 +61,27 @@ body {
 .browser__sid { color: var(--muted); font-family: var(--font-mono); font-size: var(--t-xs); font-weight: 400; }
 .browser--empty { padding: var(--s6); text-align: center; }
 .browser__hint { color: var(--muted); font-size: var(--t-sm); }
+.report { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s5); }
+.report__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4);
+  border-bottom: 1px solid var(--line); padding-bottom: var(--s4); }
+.report__verdict { font-family: var(--font-script); font-style: italic; font-weight: 600;
+  font-size: var(--t-2xl); color: var(--gold); letter-spacing: -0.01em; }
+.pill { font: 600 var(--t-xs) var(--font-ui); padding: var(--s1) var(--s3); border-radius: 999px; }
+.pill--reproduced { background: color-mix(in oklch, var(--ok) 22%, var(--surface)); color: var(--gold); }
+.pill--not_reproduced { background: color-mix(in oklch, var(--cool) 22%, var(--surface)); color: var(--cool); }
+.pill--error { background: color-mix(in oklch, var(--danger) 22%, var(--surface)); color: var(--danger); }
+.report__block { margin-top: var(--s5); }
+.report__h { font-size: var(--t-sm); color: var(--muted); font-weight: 500; margin-bottom: var(--s3); }
+.steps { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--s3); counter-reset: s; }
+.steps__item { counter-increment: s; }
+.steps__action::before { content: counter(s) ". "; color: var(--gold-dim); font-family: var(--font-mono); }
+.steps__shot { display: block; margin-top: var(--s2); max-width: 100%; border-radius: 6px; border: 1px solid var(--line); }
+.report__hyp { color: var(--ink); max-width: 70ch; }
+.report__evidence { margin-top: var(--s3); padding: var(--s3); background: var(--bg); border-radius: 6px;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--danger); overflow-x: auto; }
+.report__conf { display: inline-block; margin-top: var(--s3); color: var(--muted); font-size: var(--t-xs); }
+.attempts { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.attempts__item { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: var(--t-sm); }
+.attempts__item a { color: var(--gold); }
+.attempts__outcome[data-outcome="fail"] { color: var(--muted); }
+.attempts__outcome[data-outcome="reproduced"] { color: var(--gold); }

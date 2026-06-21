@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import UrlInput from "./components/UrlInput";
 import LiveLog from "./components/LiveLog";
 import BrowserView from "./components/BrowserView";
+import ReportCard from "./components/ReportCard";
 import { startLiveRun, startReplayRun } from "./api";
 import type { RunReport, RunPhase, StreamEvent, SessionInfo } from "./types";
 
@@ -55,7 +56,7 @@ export default function App() {
             {phase && <div className="phase">phase: {phase}</div>}
           </section>
           <BrowserView session={session} live={mode === "live"} />
-          {report && <pre className="pane pane--report">{JSON.stringify(report, null, 2)}</pre>}
+          {report && <ReportCard report={report} />}
         </main>
       )}
     </div>
