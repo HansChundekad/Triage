@@ -132,3 +132,50 @@ Required `.env` (all present locally; keep `.env.example` in sync): Band ×3 ide
 6. `bug.detected` must be honest — the fail→succeed flip must be real.
 7. Do **not** modify `triage/shared/band.py`.
 8. **Do not start 7.5 on a shaky core.** Confirm a clean `--force-retry` run + two differently-scored traces first (see the caveat above). If shaky, harden before building.
+
+---
+
+## Phase 7.5 — outer loop (DONE, flag-gated, backend-agnostic read-back seam)
+
+**What it does.** At run start, behind `TRIAGE_OUTER_LOOP` (default **OFF**),
+`triage.memory.load_learned_context(cfg)` reads prior-run history of the *same
+issue* out of the trace backend, distills a one-line learned-context hint, and
+ParserAgent posts it into the Band room (`🧠 Prior-run memory: …` — visible in the
+frontend transcript) **and** it rides into `post_initial_steps(prior_context=…)` so
+attempt 1's steps reflect the memory. Arize stops being a passive recorder and
+becomes memory the system reads back to start smarter.
+
+**Honest signal.** `reproduced` is derived from `attributes.bug.detected` on each
+`repro_attempt` span (rule 8's real flip), with the `repro_fidelity` annotation as
+optional enrichment. Within-run ordering uses `start_time` (not `attempt.number`,
+which collides at 1 across a `redirect_parser` re-parse — confirmed live). The hint
+asserts only what the traces support + a generic precondition nudge.
+
+**Safety / cut-path.** `load_learned_context` is fully guarded: flag OFF, error,
+timeout, or empty history → returns `None` → the proven inner loop runs unchanged
+(byte-identical). One bounded `ThreadPoolExecutor.result(timeout)` call at run start;
+a hung backend worker is abandoned (`shutdown(wait=False, cancel_futures=True)`), so
+it can never block a run. Each driver injection is a single deletable block. The
+inner loop (`loop.py`/`echo.py`/`reasoning.py`) and `band.py` are untouched.
+
+**Backend split (Phoenix → Arize AX migration).** The sponsor judges on **Arize AX**
+(`app.arize.com`), not the open-source Phoenix surface we instrumented against. A
+**separate migration** repoints the trace backend; that is NOT part of 7.5.
+Instrumentation (span writing, retry-loop wrapping, parent/child structure) is
+backend-agnostic and survives the migration unchanged. Only the read-back query is
+surface-specific, so it lives behind one seam:
+
+- `triage/memory/history.py` — `fetch_prior_run_history(cfg, *, issue_url, limit)` +
+  `TRACE_BACKEND` selector. **The single place to swap backends.**
+- `triage/memory/backends/phoenix.py` — working, live-verified Phoenix adapter.
+- `triage/memory/backends/ax.py` — **stub for the migration agent**: implement it to
+  return the same `list[PriorAttempt]` and set `TRACE_BACKEND = "ax"`. Do **not**
+  change the collector endpoint / keys / `phoenix.otel.register` from the seam.
+- `triage/memory/types.py` — backend-agnostic `PriorAttempt` contract.
+
+`distill_hint`, `load_learned_context`, and the parser/driver injections are fully
+backend-agnostic and need no change for the migration.
+
+**Verify.** `.venv/bin/pytest` (153). Live: `load_learned_context` returns a real
+hint from prior Phoenix traces. Booth A/B at the demo: `TRIAGE_OUTER_LOOP=1` →
+`🧠 Prior-run memory` line in the LiveLog shaping attempt 1; OFF → proven inner loop.
