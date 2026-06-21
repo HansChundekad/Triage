@@ -40,6 +40,7 @@ import anthropic
 import httpx
 
 from triage.config import load_config
+from triage.memory import load_learned_context
 from triage.hypothesis_agent.agent import make_diagnosis_callback
 from triage.parser_agent.agent import make_on_message, post_initial_steps
 from triage.parser_agent.github import fetch_issue  # noqa: F401  (parity w/ harness)
@@ -128,6 +129,20 @@ class _Run:
         await self.queue.put((name, data))
 
 
+async def maybe_inject_learned_context(cfg, parser_agent) -> str | None:
+    """Phase 7.5 (guarded): post prior-run memory into the room before steps.
+
+    Returns the hint to pass into post_initial_steps(prior_context=...), or None.
+    A single deletable block — the outer-loop cut-path.
+    """
+    hint = load_learned_context(cfg)
+    if not hint:
+        return None
+    await parser_agent.send_message(
+        ["ReproAgent", "HypothesisAgent"], f"🧠 Prior-run memory: {hint}")
+    return hint
+
+
 class RunRegistry:
     def __init__(self) -> None:
         self._runs: dict[str, _Run] = {}
@@ -186,8 +201,10 @@ class RunRegistry:
             await hypothesis.connect(room_id=room_id)
             await asyncio.sleep(2.0)
 
+            prior_context = await maybe_inject_learned_context(cfg, parser)
             await post_initial_steps(cfg, anthropic_client=parser_anthropic,
-                                     http_client=http_client, agent=parser, issue_cache=issue_cache)
+                                     http_client=http_client, agent=parser,
+                                     issue_cache=issue_cache, prior_context=prior_context)
 
             deadline = time.monotonic() + WALL_CLOCK_TIMEOUT
             while not state.terminal and time.monotonic() < deadline:
