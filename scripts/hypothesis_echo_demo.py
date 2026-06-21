@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Phase 3 live proof: ReproAgent stand-in ↔ HypothesisAgent echo.
+"""Phase 5 live proof: ReproAgent stand-in ↔ HypothesisAgent real Claude diagnosis.
 
 Run:
     .venv/bin/python scripts/hypothesis_echo_demo.py
@@ -24,9 +24,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import anthropic
+
 from triage.config import load_config
 from triage.shared.band import BandAgent
-from triage.hypothesis_agent.agent import make_echo_callback
+from triage.hypothesis_agent.agent import make_diagnosis_callback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,14 +57,15 @@ async def main() -> int:
         api_key=cfg.band_repro.api_key,
         on_message=repro_on_message,
     )
+    hypo_client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
     hypo = BandAgent(
         name="HypothesisAgent",
         agent_id=cfg.band_hypothesis.agent_id,
         api_key=cfg.band_hypothesis.api_key,
-        on_message=make_echo_callback(cfg.band_repro.agent_id),
+        on_message=make_diagnosis_callback(hypo_client, cfg.band_repro.agent_id),
     )
 
-    print("\n=== TRIAGE Phase 3 — HypothesisAgent Echo Demo ===\n")
+    print("\n=== TRIAGE Phase 5 — HypothesisAgent Diagnosis Demo ===\n")
 
     # ReproAgent stand-in creates/joins the room and must add HypothesisAgent
     # as a participant BEFORE HypothesisAgent subscribes (Band requires it).
@@ -81,8 +84,14 @@ async def main() -> int:
     await repro.send_message(
         mentions=["HypothesisAgent"],
         text=(
-            "@hanschundekad/hypothesisagent ran all 4 steps — app went blank, "
-            "console threw TypeError on empty array. Evidence + screenshots attached."
+            "@hanschundekad/hypothesisagent repro result:\n"
+            "verdict: BUG REPRODUCED\n"
+            "session_url: https://www.browserbase.com/sessions/demo\n"
+            "evidence:\n"
+            "  - focus input, type task, click add, click delete, confirm delete\n"
+            "  - after confirming delete the app went blank (body text 8 chars)\n"
+            "console_errors:\n"
+            "  - TypeError: Cannot read properties of undefined (reading '0')"
         ),
     )
 
