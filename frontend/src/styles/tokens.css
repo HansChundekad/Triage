@@ -1,0 +1,32 @@
+:root {
+  /* palette — OKLCH, near-black editorial + honey-gold */
+  --bg:        oklch(0.17 0.012 75);
+  --surface:   oklch(0.21 0.014 75);
+  --surface-2: oklch(0.25 0.016 75);
+  --ink:       oklch(0.96 0.005 75);
+  --muted:     oklch(0.74 0.02 75);   /* ≥4.5:1 on --bg; verify in Task 8 */
+  --gold:      oklch(0.80 0.14 75);
+  --gold-dim:  oklch(0.62 0.10 75);
+  --ok:        oklch(0.80 0.14 75);   /* reproduced = gold */
+  --cool:      oklch(0.72 0.03 240);  /* not_reproduced */
+  --danger:    oklch(0.64 0.16 25);   /* error, restrained */
+  --line:      oklch(0.30 0.012 75);
+
+  /* type */
+  --font-ui:    "Inter", system-ui, sans-serif;
+  --font-mono:  "JetBrains Mono", ui-monospace, monospace;
+  --font-script:"Cormorant Garamond", Georgia, serif;
+  --t-xs: 0.78rem; --t-sm: 0.875rem; --t-base: 1rem;
+  --t-lg: 1.2rem; --t-xl: 1.44rem; --t-2xl: 1.73rem;
+
+  /* space + motion + z */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 40px; --s7: 64px;
+  --radius: 10px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1); /* ease-out-quint */
+  --dur: 200ms;
+  --z-stream: 10; --z-sticky: 20; --z-toast: 40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur: 1ms; }
+}
