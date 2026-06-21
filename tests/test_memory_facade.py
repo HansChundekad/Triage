@@ -22,8 +22,12 @@ def test_flag_off_returns_none_without_querying(monkeypatch):
 
 
 def test_flag_on_returns_distilled_hint(monkeypatch):
-    prior = [PriorAttempt("A", 1, "not_reproduced", 0.0, False),
-             PriorAttempt("A", 2, "reproduced", 1.0, True)]
+    prior = [
+        PriorAttempt(run_id="A", attempt_number=1, start_time="2026-06-20T10:00:01Z",
+                     reproduced=False, fidelity_label="not_reproduced", fidelity_score=0.0),
+        PriorAttempt(run_id="A", attempt_number=2, start_time="2026-06-20T10:00:02Z",
+                     reproduced=True, fidelity_label="reproduced", fidelity_score=1.0),
+    ]
     monkeypatch.setattr(memory, "query_prior_runs", lambda cfg, **k: prior)
     hint = memory.load_learned_context(_cfg(True))
     assert hint and "Prior-run memory" in hint
