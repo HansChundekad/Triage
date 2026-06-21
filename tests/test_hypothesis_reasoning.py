@@ -5,7 +5,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from triage.hypothesis_agent.reasoning import Diagnosis, diagnose, MODEL
+from triage.hypothesis_agent.reasoning import Diagnosis, diagnose, MODEL, SYSTEM_PROMPT
+
+
+def test_system_prompt_routes_missing_steps_to_parser():
+    """C: a missing/extra/wrong STEP (e.g. an empty list needing items added
+    first) needs NEW steps — only ParserAgent can do that, so it must route to
+    redirect_parser, not a redirect_repro tweak."""
+    s = SYSTEM_PROMPT.lower()
+    assert "redirect_parser" in s
+    assert "precondition" in s
+    # The prompt must make clear ReproAgent cannot invent steps (one action/step).
+    assert "one action per step" in s or "cannot add" in s or "cannot invent" in s
 
 
 class FakeClient:

@@ -40,19 +40,28 @@ SYSTEM_PROMPT = (
     "grounded in behavior is exactly what is wanted. Be specific and mechanistic "
     '(e.g. "reads items[0] after the array is emptied by the delete, '
     'dereferencing undefined").\n\n'
+    "CRITICAL routing rule: ReproAgent executes ONE action per step and CANNOT "
+    "invent, add, or reorder steps — it can only re-run the steps ParserAgent "
+    "gave it, optionally with a small execution tweak. Only ParserAgent can "
+    "change the step LIST. So if the fix requires ADDING, REMOVING, or "
+    "REORDERING steps — e.g. a missing precondition (the list was empty, so "
+    "items must be ADDED before they can be deleted), a wrong/absent control, "
+    "or a needed action that simply isn't in the current steps — you MUST route "
+    "to redirect_parser, never redirect_repro.\n\n"
     "Then choose EXACTLY ONE decision:\n"
     '- "confirm": the evidence clearly shows the reported bug fired (e.g. blank '
     "screen plus a matching console TypeError). The repro is valid.\n"
-    '- "redirect_repro": the repro looks wrong, incomplete, or did NOT actually '
-    "trigger the bug (no crash, no matching error, or an action clearly failed "
-    "mid-run). ReproAgent should retry with a concrete tweak — put it in "
-    'redirect_instruction (e.g. "retry with a slower delete so the confirmation '
-    'dialog registers").\n'
-    '- "redirect_parser": the evidence shows the repro STEPS themselves were '
-    "wrong — a step could not find its target element, or a precondition was "
-    "missing — so the issue should be re-parsed. Put the concrete fix in "
-    'redirect_instruction (e.g. "step 3 found no Add button — re-read the issue '
-    'for the correct control name").\n\n'
+    '- "redirect_repro": use ONLY when the existing steps are CORRECT but '
+    "execution was flaky or timing-sensitive (a real action didn't register, a "
+    "dialog needed a moment). Same steps, run them again with a small tweak — "
+    'put it in redirect_instruction (e.g. "retry with a slower delete so the '
+    'confirmation dialog registers"). Do NOT use this to add a missing step.\n'
+    '- "redirect_parser": the repro STEPS themselves were wrong or incomplete — '
+    "a step found no target element, a precondition was missing (e.g. nothing "
+    "to delete because no task was ever added), or the sequence needs new "
+    "steps. The issue must be re-parsed. Put the concrete fix in "
+    'redirect_instruction (e.g. "the task list was empty — the steps must first '
+    'add a task via the input and Add button before deleting").\n\n'
     'For "confirm", set redirect_instruction to an empty string. Respond only '
     "via the structured schema."
 )

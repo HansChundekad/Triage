@@ -5,9 +5,19 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from triage.parser_agent.claude import build_user_prompt, extract_steps
+from triage.parser_agent.claude import _SYSTEM, build_user_prompt, extract_steps
 from triage.parser_agent.github import Issue
 from triage.shared.band import ReproStepsPayload
+
+
+def test_system_prompt_assumes_empty_start_no_navigation_confirm_delete():
+    """A: the prompt must (1) assume the app starts empty so delete-bugs add a
+    task first, (2) forbid navigation/open-app steps, (3) confirm deletions."""
+    s = _SYSTEM.lower()
+    assert "empty" in s                       # app starts with no tasks
+    assert "navigat" in s                      # navigation steps are addressed (forbidden)
+    assert "confirm" in s                      # deletions must be confirmed
+    assert "sample" in s                       # explicitly ignore the issue's "sample todos"
 
 
 class _FakeMessages:
