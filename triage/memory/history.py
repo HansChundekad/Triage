@@ -5,39 +5,39 @@ a `list[PriorAttempt]`. The actual trace-query is surface-specific (it differs
 between open-source Phoenix and Arize AX), so it lives behind this single function —
 swapping backends is one change here, not scattered through the codebase.
 
-MIGRATION NOTE (Phoenix -> Arize AX)
------------------------------------
+BACKEND SELECTION (Phoenix -> Arize AX migration, done)
+-------------------------------------------------------
 Phoenix and AX share the same OpenTelemetry/OpenInference foundation, so the
 *instrumentation* (span writing, retry-loop wrapping, parent/child structure) is
-backend-agnostic and unchanged by the migration. Only this read-back query differs.
-To switch backends:
-  1. Implement `triage/memory/backends/ax.py:fetch_prior_run_history` (same
-     `list[PriorAttempt]` contract as the Phoenix adapter).
-  2. Set `TRACE_BACKEND = "ax"` below.
-Do NOT change the collector endpoint, API keys, or `phoenix.otel.register` call from
-here — that configuration is owned by the migration, not by this seam.
+backend-agnostic. Only this read-back query differs between surfaces. The active
+backend is **Arize AX** by default; it is selected per-call from
+`cfg.trace_backend` (env `TRIAGE_TRACE_BACKEND`), falling back to the module
+default `TRACE_BACKEND`. Set `TRIAGE_TRACE_BACKEND=phoenix` to use the Phoenix
+adapter as a fallback. The collector endpoint / API keys / tracer registration are
+owned by `triage.tracing.setup`, not by this seam.
 """
 from __future__ import annotations
 
 from triage.memory.types import PriorAttempt
 
-# Active trace-query backend. Instrumentation still writes to Phoenix today; the
-# migration flips this to "ax" once backends/ax.py is wired. This is the ONE place
-# the backend is selected.
-TRACE_BACKEND = "phoenix"
+# Default trace-query backend (overridable per-call via cfg.trace_backend). AX is
+# the primary surface the Arize sponsor judges; phoenix remains a fallback.
+TRACE_BACKEND = "ax"
 
 
 def fetch_prior_run_history(cfg, *, issue_url: str, limit: int = 5) -> list[PriorAttempt]:
     """Return prior-run attempt history for `issue_url` from the active backend.
 
-    May raise (network / auth / NotImplementedError for an unwired backend) — the
-    caller (`triage.memory.load_learned_context`) guards it and degrades to the
-    proven inner loop. This is the single dispatch point for backend selection.
+    The backend is `cfg.trace_backend` when present, else the module default. May
+    raise (network / auth / unwired backend) — the caller
+    (`triage.memory.load_learned_context`) guards it and degrades to the proven
+    inner loop. This is the single dispatch point for backend selection.
     """
-    if TRACE_BACKEND == "phoenix":
-        from triage.memory.backends.phoenix import fetch_prior_run_history as _fetch
-    elif TRACE_BACKEND == "ax":
+    backend = getattr(cfg, "trace_backend", None) or TRACE_BACKEND
+    if backend == "ax":
         from triage.memory.backends.ax import fetch_prior_run_history as _fetch
+    elif backend == "phoenix":
+        from triage.memory.backends.phoenix import fetch_prior_run_history as _fetch
     else:  # pragma: no cover - guards a misconfiguration
-        raise ValueError(f"unknown TRACE_BACKEND: {TRACE_BACKEND!r}")
+        raise ValueError(f"unknown trace backend: {backend!r}")
     return _fetch(cfg, issue_url=issue_url, limit=limit)

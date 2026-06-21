@@ -1,8 +1,8 @@
 """Backend-agnostic contract for prior-run history.
 
 `PriorAttempt` is the type every layer above the trace-query seam speaks. It is
-deliberately backend-neutral: the Phoenix and (future) Arize AX read-back adapters
-both produce `list[PriorAttempt]`, and `distill_hint` / `load_learned_context`
+deliberately backend-neutral: the Arize AX and Phoenix read-back adapters both
+produce `list[PriorAttempt]`, and `distill_hint` / `load_learned_context`
 never see anything backend-specific.
 """
 from __future__ import annotations

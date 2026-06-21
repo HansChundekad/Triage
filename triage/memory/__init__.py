@@ -6,8 +6,8 @@ timeout, or empty history it returns None and the run falls back to the proven
 inner loop.
 
 The backend read-back is reached only through the swappable seam
-`triage.memory.history.fetch_prior_run_history` (Phoenix today, Arize AX after the
-migration) — this module is backend-agnostic.
+`triage.memory.history.fetch_prior_run_history` (Arize AX primary, Phoenix
+fallback) — this module is backend-agnostic.
 """
 from __future__ import annotations
 
