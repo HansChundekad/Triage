@@ -13,6 +13,14 @@ reaches a terminal state (bug confirmed, or could-not-reproduce after N).
 
 Run:
     .venv/bin/python scripts/phase6_live_run.py
+    .venv/bin/python scripts/phase6_live_run.py --force-retry
+
+--force-retry posts a deliberately INCOMPLETE first step set (delete-only, no
+add) so the live loop has to recover for real: empty app -> no crash ->
+HypothesisAgent routes back to ParserAgent (redirect_parser) -> Parser
+re-parses WITH the add steps -> a fresh Browserbase session reproduces the
+bug. Nothing in detection is faked — the fail->succeed flip is genuine. The
+production agents are untouched; this scaffolding lives only in the harness.
 """
 from __future__ import annotations
 
@@ -29,10 +37,11 @@ load_dotenv()
 
 from triage.config import load_config
 from triage.hypothesis_agent.agent import make_diagnosis_callback
-from triage.parser_agent.agent import make_on_message, post_initial_steps
+from triage.parser_agent.agent import format_steps_message, make_on_message, post_initial_steps
+from triage.parser_agent.github import fetch_issue
 from triage.repro_agent.echo import make_repro_callback
 from triage.repro_agent.loop import ReproLoopState
-from triage.shared.band import BandAgent
+from triage.shared.band import BandAgent, ReproStepsPayload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,8 +54,18 @@ logging.basicConfig(
 WALL_CLOCK_TIMEOUT = 600  # seconds
 STABILISE = 2.0
 
+# Deliberately INCOMPLETE first steps for --force-retry: delete-only, no add.
+# On the empty app these find nothing to delete -> no crash -> a genuine
+# BUG NOT REPRODUCED, which HypothesisAgent should route to redirect_parser.
+_FORCED_BROKEN_STEPS = [
+    "Click the Delete button on the first task in the list",
+    "Click the 'Yes, delete' confirmation button to confirm the deletion",
+    "Click the Delete button on the next remaining task in the list",
+    "Click the 'Yes, delete' confirmation button to confirm the deletion",
+]
 
-async def main() -> int:
+
+async def main(force_retry: bool = False) -> int:
     cfg = load_config()
 
     # Real clients (mirrors each agent's own __main__).
@@ -99,14 +118,23 @@ async def main() -> int:
     await hypothesis.connect(room_id=room_id)
     await asyncio.sleep(STABILISE)
 
-    print("[4/5] ParserAgent fetching + parsing issue, posting @ReproAgent ...")
-    await post_initial_steps(
-        cfg,
-        anthropic_client=parser_anthropic,
-        http_client=http_client,
-        agent=parser,
-        issue_cache=issue_cache,
-    )
+    if force_retry:
+        print("[4/5] FORCE-RETRY: posting deliberately INCOMPLETE (delete-only) "
+              "steps @ReproAgent — the loop must recover via redirect_parser ...")
+        # Warm the issue cache so ParserAgent's re-parse (on redirect_parser)
+        # reuses the same issue instead of re-fetching.
+        issue_cache["issue"] = await fetch_issue(cfg.github_issue_url, http_client=http_client)
+        broken = ReproStepsPayload(issue_url=cfg.github_issue_url, steps=_FORCED_BROKEN_STEPS)
+        await parser.send_message(["ReproAgent"], format_steps_message(broken))
+    else:
+        print("[4/5] ParserAgent fetching + parsing issue, posting @ReproAgent ...")
+        await post_initial_steps(
+            cfg,
+            anthropic_client=parser_anthropic,
+            http_client=http_client,
+            agent=parser,
+            issue_cache=issue_cache,
+        )
 
     print(f"[5/5] Running loop — waiting for terminal (timeout {WALL_CLOCK_TIMEOUT}s) ...\n")
     deadline = time.monotonic() + WALL_CLOCK_TIMEOUT
@@ -130,8 +158,9 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
+    force = "--force-retry" in sys.argv[1:]
     try:
-        sys.exit(asyncio.run(main()))
+        sys.exit(asyncio.run(main(force_retry=force)))
     except KeyboardInterrupt:
         print("\n[phase6_live_run] interrupted.")
         sys.exit(0)
