@@ -16,14 +16,24 @@ The state object has NO confirmed/root_cause fields.  We therefore track
 HypothesisAgent sends a message to ReproAgent whose text matches is_confirm().
 When that fires, run.reproduced is set True before the message is forwarded.
 Likewise, `_Run.last_hypothesis_text` is updated on every HypothesisAgent
-outbound message so _build_report can use the real last hypothesis text instead
-of an invented string.
+outbound message so the synthesised report can use the real last hypothesis text
+(the diagnosed root cause) instead of an invented string.
+
+Report contract
+---------------
+The report emitted at the end of a run is the canonical Arize ``ReproReport``
+produced by ``triage.synthesis`` — the single source of truth. We never build a
+bespoke shape here: ``build_report_dict`` runs the captured artifacts through
+``synthesize_run`` (Claude) and returns exactly what it wrote to ``report.json``.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import time
 import uuid
+from pathlib import Path
 from typing import AsyncIterator
 
 import anthropic
@@ -36,6 +46,10 @@ from triage.parser_agent.github import fetch_issue  # noqa: F401  (parity w/ har
 from triage.repro_agent.echo import make_repro_callback
 from triage.repro_agent.loop import ReproLoopState, is_confirm
 from triage.shared.band import BandAgent
+from triage.synthesis.synthesize import synthesize_run
+from triage.tracing.artifacts import RunArtifacts
+
+logger = logging.getLogger(__name__)
 
 WALL_CLOCK_TIMEOUT = 600
 _EVENT_KIND = {"task": "browser", "thought": "thought", "error": "error"}
@@ -66,7 +80,7 @@ def _tap(agent: BandAgent, run: "_Run") -> None:
     - When HypothesisAgent sends a message to ReproAgent with is_confirm() text,
       set run.reproduced = True.
     - Every HypothesisAgent outbound message text is saved to
-      run.last_hypothesis_text so _build_report can surface a real hypothesis.
+      run.last_hypothesis_text so synthesis can surface a real root cause.
     """
     orig_msg = agent.send_message
     orig_evt = agent.send_event
@@ -97,7 +111,7 @@ class _Run:
 
     reproduced: set True by _tap when HypothesisAgent confirms success.
     last_hypothesis_text: most recent HypothesisAgent outbound message text,
-        used as rootCause.hypothesis in the report.
+        passed to synthesis as the diagnosed root cause for the report.
     """
 
     def __init__(self, run_id: str, issue_url: str) -> None:
@@ -148,9 +162,10 @@ class RunRegistry:
             http_client = httpx.AsyncClient()
             issue_cache: dict = {"issue": None}
             state = ReproLoopState()
+            artifacts = RunArtifacts("./.triage_runs")
 
             repro = BandAgent("ReproAgent", cfg.band_repro.agent_id, cfg.band_repro.api_key,
-                              on_message=make_repro_callback(cfg, state))
+                              on_message=make_repro_callback(cfg, state, artifacts=artifacts))
             parser = BandAgent("ParserAgent", cfg.band_parser.agent_id, cfg.band_parser.api_key,
                                on_message=make_on_message(cfg, anthropic_client=parser_anthropic,
                                                           http_client=http_client, issue_cache=issue_cache))
@@ -178,7 +193,21 @@ class RunRegistry:
             while not state.terminal and time.monotonic() < deadline:
                 await asyncio.sleep(1)
 
-            await run.emit("report", report_event_data(run))
+            # Synthesise the canonical ReproReport from the captured artifacts.
+            # Off the event loop: synthesize_run + eval are blocking (Claude /
+            # judges). Honest root cause = the real last HypothesisAgent message.
+            issue_obj = issue_cache.get("issue")
+            issue_dict = {
+                "url": run.issue_url,
+                "title": getattr(issue_obj, "title", "") or "",
+                "summary": (getattr(issue_obj, "body", "") or "")[:280],
+            }
+            report = await asyncio.to_thread(
+                build_report_dict, cfg, artifacts,
+                client=hypothesis_anthropic, issue=issue_dict,
+                hypothesis_root_cause=run.last_hypothesis_text,
+            )
+            await run.emit("report", report_event_data(report))
 
             for a in (parser, hypothesis, repro):
                 await a.disconnect()
@@ -189,48 +218,61 @@ class RunRegistry:
             run.done = True
 
 
-def _build_report(run: _Run) -> dict:
-    """Synthesize the RunReport from the run's observed signals (spec §6).
+def _guarded_eval_scores(cfg, artifacts, hypothesis_root_cause: str) -> dict | None:
+    """Final-attempt LLM-judge scores for the report, or None. Never raises.
 
-    Uses run.reproduced (set by _tap from the live HypothesisAgent confirm
-    message — not from ReproLoopState which cannot distinguish success from
-    gave-up) and run.last_hypothesis_text for rootCause.hypothesis.
-
-    PLACEHOLDER — reconcile to the Arize worktree's synthesis output.  Per-step
-    screenshots are not surfaced by ReproResultPayload, so steps are text-only
-    here and the card leans on the session replay links.
+    Decoupled from Phoenix span-logging: run_eval's ``_log_to_spans`` needs a live
+    collector, but the report only needs the scores. So we drive the proven pure
+    path directly (build_eval_dataframe → score_attempts via the Anthropic judge).
     """
-    # Gather session URLs from the tapped buffer (step events that carried
-    # session_url, plus the state we do NOT have direct access to here).
-    # Pull them from the buffer: normalize_event stores session_url on the dict.
-    session_urls: list[str] = []
-    for _name, data in run.buffer:
-        if data.get("type") == "step" and data.get("session_url"):
-            url = data["session_url"]
-            if url not in session_urls:
-                session_urls.append(url)
+    try:
+        from triage.eval.run_eval import build_eval_dataframe, score_attempts
+        from triage.eval.judges import (
+            build_judge_llm, make_fidelity_judge, make_root_cause_judge,
+        )
 
-    reproduced = run.reproduced
-    attempts = [{"n": i + 1,
-                 "outcome": "reproduced" if (reproduced and i == len(session_urls) - 1) else "fail",
-                 "sessionId": u.rstrip("/").split("/")[-1], "replayUrl": u}
-                for i, u in enumerate(session_urls)]
+        attempts = artifacts.load_attempts()
+        if not attempts:
+            return None
+        df = build_eval_dataframe(attempts, cfg.github_issue_url, hypothesis_root_cause)
+        llm = build_judge_llm(cfg)
+        scored = score_attempts(
+            df,
+            fidelity_judge=make_fidelity_judge(llm),
+            root_cause_judge=make_root_cause_judge(llm),
+        )
+        last = scored.iloc[-1]
 
-    hypothesis_text = run.last_hypothesis_text or "see transcript"
+        def _f(v):
+            return float(v) if v is not None else None
 
-    return {
-        "issueUrl": run.issue_url,
-        "status": "reproduced" if reproduced else "not_reproduced",
-        "verdict": "Bug reproduced." if reproduced else "Could not reproduce.",
-        "reproSteps": [],
-        "rootCause": {"hypothesis": hypothesis_text,
-                      "evidence": "", "confidence": "medium"},
-        "attempts": attempts,
-        "consoleErrors": [],
-    }
+        return {
+            "repro_fidelity": _f(last["repro_fidelity_score"]),
+            "root_cause_correctness": _f(last["root_cause_score"]),
+        }
+    except Exception as exc:  # noqa: BLE001 — eval must never wedge the report
+        logger.warning("[run_manager] eval scoring skipped (non-fatal): %s", exc)
+        return None
 
 
-def report_event_data(run: "_Run") -> dict:
-    """SSE `data` for the report event: wraps RunReport so the frontend's
-    {type:"report", ...data} spread yields {type:"report", report: RunReport}."""
-    return {"report": _build_report(run)}
+def build_report_dict(cfg, artifacts, *, client, issue: dict,
+                      hypothesis_root_cause: str) -> dict:
+    """Produce the canonical Arize ReproReport for a finished run.
+
+    ``triage.synthesis`` is the single source of truth: this runs guarded eval
+    scoring, then ``synthesize_run`` writes ``report.json`` (Claude generates the
+    observed fields; the server fills replay URLs, eval scores and the timestamp).
+    We load and return exactly that dict — no placeholder shape is built here.
+    """
+    eval_scores = _guarded_eval_scores(cfg, artifacts, hypothesis_root_cause)
+    report_path = synthesize_run(
+        cfg, artifacts, client=client, issue=issue,
+        hypothesis_root_cause=hypothesis_root_cause, eval_scores=eval_scores,
+    )
+    return json.loads(Path(report_path).read_text())
+
+
+def report_event_data(report: dict) -> dict:
+    """SSE `data` for the report event: wraps the canonical ReproReport so the
+    frontend's {type:"report", ...data} spread yields {type:"report", report:{…}}."""
+    return {"report": report}

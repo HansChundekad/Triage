@@ -4,7 +4,7 @@ import LiveLog from "./components/LiveLog";
 import BrowserView from "./components/BrowserView";
 import ReportCard from "./components/ReportCard";
 import { startLiveRun, startReplayRun } from "./api";
-import type { RunReport, RunPhase, StreamEvent, SessionInfo } from "./types";
+import type { ReproReport, RunPhase, StreamEvent, SessionInfo } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 
@@ -14,7 +14,7 @@ export default function App() {
   const [status, setStatus] = useState<Status>("idle");
   const [phase, setPhase] = useState<RunPhase | null>(null);
   const [events, setEvents] = useState<StreamEvent[]>([]);
-  const [report, setReport] = useState<RunReport | null>(null);
+  const [report, setReport] = useState<ReproReport | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [mode, setMode] = useState<"live" | "replay">("replay");

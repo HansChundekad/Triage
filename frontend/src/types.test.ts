@@ -6,9 +6,14 @@ describe("types", () => {
     const ev: StreamEvent = {
       type: "report",
       report: {
-        issueUrl: "u", status: "reproduced", verdict: "Bug reproduced.",
-        reproSteps: [], rootCause: { hypothesis: "", evidence: "", confidence: "high" },
-        attempts: [], consoleErrors: [],
+        issue: { url: "u", title: "t", summary: "s" },
+        verdict: "reproduced",
+        repro_steps: [],
+        root_cause: { hypothesis: "", mechanism: "", confidence: "high" },
+        evidence: { console_error: "", blank_screen: false, body_snippet: "" },
+        attempts: [],
+        eval_scores: null,
+        generated_at: "2026-06-20T00:00:00Z",
       },
     };
     expect(isReport(ev)).toBe(true);

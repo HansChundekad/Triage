@@ -1,29 +1,56 @@
-// PLACEHOLDER report schema — must be reconciled to the Arize worktree's
-// final synthesis shape (spec §6). Where they diverge, Arize wins.
+// Report schema — the canonical Arize `ReproReport` emitted by triage.synthesis
+// (single source of truth). Field names + casing match the Python schema exactly
+// (snake_case); do NOT alias or translate. See triage/synthesis/schema.py.
 
 export type Confidence = "high" | "medium" | "low";
+export type Verdict = "reproduced" | "not_reproduced";
+export type StepStatus = "ok" | "fail" | "crash";
+
+export interface ReportIssue {
+  url: string;
+  title: string;
+  summary: string;
+}
 
 export interface ReproStep {
   n: number;
   action: string;
-  screenshot: string | null; // data: URI or URL; null → text-only (graceful)
+  status: StepStatus;
+  screenshot_ref: string; // relative artifact path, or "" → text-only (graceful)
+}
+
+export interface RootCause {
+  hypothesis: string;
+  mechanism: string;
+  confidence: Confidence;
+}
+
+export interface ReportEvidence {
+  console_error: string;
+  blank_screen: boolean;
+  body_snippet: string;
 }
 
 export interface Attempt {
-  n: number;
-  outcome: "fail" | "reproduced" | "not_reproduced";
-  sessionId: string;
-  replayUrl: string;
+  number: number;
+  session_replay_url: string;
+  bug_detected: boolean;
 }
 
-export interface RunReport {
-  issueUrl: string;
-  status: "reproduced" | "not_reproduced" | "error";
-  verdict: string;
-  reproSteps: ReproStep[];
-  rootCause: { hypothesis: string; evidence: string; confidence: Confidence };
+export interface EvalScores {
+  repro_fidelity: number | null;
+  root_cause_correctness: number | null;
+}
+
+export interface ReproReport {
+  issue: ReportIssue;
+  verdict: Verdict;
+  repro_steps: ReproStep[];
+  root_cause: RootCause;
+  evidence: ReportEvidence;
   attempts: Attempt[];
-  consoleErrors: string[];
+  eval_scores: EvalScores | null;
+  generated_at: string;
 }
 
 export interface SessionInfo {
@@ -43,7 +70,7 @@ export type StepEvent = {
   text: string; screenshot: string | null; ts: number;
 };
 export type SessionEvent = { type: "session"; session: SessionInfo };
-export type ReportEvent = { type: "report"; report: RunReport };
+export type ReportEvent = { type: "report"; report: ReproReport };
 export type ErrorEvent = { type: "error"; message: string };
 
 export type StreamEvent =

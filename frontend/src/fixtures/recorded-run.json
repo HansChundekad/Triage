@@ -31,24 +31,33 @@
     "text": "confirmed, matches the report. Repro valid.", "ts": 10 },
   { "type": "status", "phase": "done", "attempt": 2, "maxAttempts": 3 },
   { "type": "report", "report": {
-    "issueUrl": "https://github.com/hanschundekad/triage-demo-app/issues/1",
-    "status": "reproduced",
-    "verdict": "Bug reproduced.",
-    "reproSteps": [
-      { "n": 1, "action": "Focus the task input", "screenshot": null },
-      { "n": 2, "action": "Type a task and click Add", "screenshot": null },
-      { "n": 3, "action": "Delete the task and confirm", "screenshot": null },
-      { "n": 4, "action": "Observe the page go blank", "screenshot": null }
+    "issue": {
+      "url": "https://github.com/hanschundekad/triage-demo-app/issues/1",
+      "title": "App goes blank when deleting the last task",
+      "summary": "Deleting the final remaining task blanks the whole page."
+    },
+    "verdict": "reproduced",
+    "repro_steps": [
+      { "n": 1, "action": "Focus the task input", "status": "ok", "screenshot_ref": "screenshots/attempt2_step1.png" },
+      { "n": 2, "action": "Type a task and click Add", "status": "ok", "screenshot_ref": "screenshots/attempt2_step2.png" },
+      { "n": 3, "action": "Delete the task and confirm", "status": "ok", "screenshot_ref": "screenshots/attempt2_step3.png" },
+      { "n": 4, "action": "Observe the page go blank", "status": "crash", "screenshot_ref": "screenshots/attempt2_step4.png" }
     ],
-    "rootCause": {
+    "root_cause": {
       "hypothesis": "Render reads items[0] after the last item is deleted, so it dereferences undefined.",
-      "evidence": "TypeError: Cannot read properties of undefined (reading '0')",
+      "mechanism": "The render path indexes items[0] unconditionally; once the array is emptied by the final delete, items[0] is undefined and reading '0' on it throws.",
       "confidence": "high"
     },
+    "evidence": {
+      "console_error": "TypeError: Cannot read properties of undefined (reading '0')",
+      "blank_screen": true,
+      "body_snippet": ""
+    },
     "attempts": [
-      { "n": 1, "outcome": "fail", "sessionId": "9fd0293f", "replayUrl": "https://www.browserbase.com/sessions/9fd0293f" },
-      { "n": 2, "outcome": "reproduced", "sessionId": "72bb755b", "replayUrl": "https://www.browserbase.com/sessions/72bb755b" }
+      { "number": 1, "session_replay_url": "https://www.browserbase.com/sessions/9fd0293f", "bug_detected": false },
+      { "number": 2, "session_replay_url": "https://www.browserbase.com/sessions/72bb755b", "bug_detected": true }
     ],
-    "consoleErrors": ["TypeError: Cannot read properties of undefined (reading '0')"]
+    "eval_scores": { "repro_fidelity": 1.0, "root_cause_correctness": 1.0 },
+    "generated_at": "2026-06-20T00:00:00Z"
   } }
 ]
