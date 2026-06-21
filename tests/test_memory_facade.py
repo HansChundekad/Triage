@@ -40,3 +40,19 @@ def test_query_failure_degrades_to_none(monkeypatch):
 def test_empty_history_returns_none(monkeypatch):
     monkeypatch.setattr(memory, "query_prior_runs", lambda cfg, **k: [])
     assert memory.load_learned_context(_cfg(True)) is None
+
+
+def test_hanging_query_returns_within_timeout(monkeypatch):
+    import time
+
+    def _hang(cfg, **k):
+        time.sleep(5)  # far longer than timeout_s below
+        return []
+
+    monkeypatch.setattr(memory, "query_prior_runs", _hang)
+    cfg = types.SimpleNamespace(outer_loop_enabled=True, github_issue_url="https://issue/X")
+    start = time.monotonic()
+    result = memory.load_learned_context(cfg, timeout_s=0.2)
+    elapsed = time.monotonic() - start
+    assert result is None
+    assert elapsed < 2.0  # must NOT wait the full 5s for the hung worker
