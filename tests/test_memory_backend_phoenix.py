@@ -1,6 +1,6 @@
 import pandas as pd
 
-from triage.memory.query import PriorAttempt, parse_prior_attempts
+from triage.memory.backends.phoenix import parse_prior_attempts
 
 
 def _spans_df():

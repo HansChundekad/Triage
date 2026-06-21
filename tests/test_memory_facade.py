@@ -1,7 +1,7 @@
 import types
 
 import triage.memory as memory
-from triage.memory.query import PriorAttempt
+from triage.memory.types import PriorAttempt
 
 
 def _cfg(enabled):
@@ -16,7 +16,7 @@ def test_flag_off_returns_none_without_querying(monkeypatch):
         called["n"] += 1
         raise AssertionError("must not query when flag is OFF")
 
-    monkeypatch.setattr(memory, "query_prior_runs", _boom)
+    monkeypatch.setattr(memory, "fetch_prior_run_history", _boom)
     assert memory.load_learned_context(_cfg(False)) is None
     assert called["n"] == 0
 
@@ -28,7 +28,7 @@ def test_flag_on_returns_distilled_hint(monkeypatch):
         PriorAttempt(run_id="A", attempt_number=2, start_time="2026-06-20T10:00:02Z",
                      reproduced=True, fidelity_label="reproduced", fidelity_score=1.0),
     ]
-    monkeypatch.setattr(memory, "query_prior_runs", lambda cfg, **k: prior)
+    monkeypatch.setattr(memory, "fetch_prior_run_history", lambda cfg, **k: prior)
     hint = memory.load_learned_context(_cfg(True))
     assert hint and "Prior-run memory" in hint
 
@@ -37,12 +37,12 @@ def test_query_failure_degrades_to_none(monkeypatch):
     def _raise(cfg, **k):
         raise RuntimeError("phoenix 401")
 
-    monkeypatch.setattr(memory, "query_prior_runs", _raise)
+    monkeypatch.setattr(memory, "fetch_prior_run_history", _raise)
     assert memory.load_learned_context(_cfg(True)) is None
 
 
 def test_empty_history_returns_none(monkeypatch):
-    monkeypatch.setattr(memory, "query_prior_runs", lambda cfg, **k: [])
+    monkeypatch.setattr(memory, "fetch_prior_run_history", lambda cfg, **k: [])
     assert memory.load_learned_context(_cfg(True)) is None
 
 
@@ -53,7 +53,7 @@ def test_hanging_query_returns_within_timeout(monkeypatch):
         time.sleep(5)  # far longer than timeout_s below
         return []
 
-    monkeypatch.setattr(memory, "query_prior_runs", _hang)
+    monkeypatch.setattr(memory, "fetch_prior_run_history", _hang)
     cfg = types.SimpleNamespace(outer_loop_enabled=True, github_issue_url="https://issue/X")
     start = time.monotonic()
     result = memory.load_learned_context(cfg, timeout_s=0.2)

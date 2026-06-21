@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from triage.memory.query import PriorAttempt
+from triage.memory.types import PriorAttempt
 
 
 def distill_hint(prior: list[PriorAttempt]) -> str | None:

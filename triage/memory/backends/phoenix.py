@@ -1,9 +1,9 @@
-"""Read prior-run `repro_attempt` history from Phoenix (read-only).
+"""Phoenix trace-query backend — reads prior-run `repro_attempt` history (read-only).
 
-Uses the same `phoenix.client` surface as triage.eval.run_eval. The pure
-`parse_prior_attempts` does all the shaping (network-free, unit-tested); the thin
-`query_prior_runs` wrapper does the live fetch and may raise — every caller
-guards it (see triage.memory.load_learned_context).
+Selected when `triage.memory.history.TRACE_BACKEND == "phoenix"`. Uses the same
+`phoenix.client` surface as triage.eval.run_eval. The pure `parse_prior_attempts`
+does all the shaping (network-free, unit-tested); `fetch_prior_run_history` does the
+live fetch and may raise — the seam's caller guards it.
 
 Trace shape (verified live against Phoenix project `triage-bug-repro`):
 - The spans dataframe is indexed by `context.span_id` (string).
@@ -17,26 +17,19 @@ Trace shape (verified live against Phoenix project `triage-bug-repro`):
 - `attributes.attempt.number` is UNRELIABLE for ordering: a `redirect_parser`
   re-parse resets the counter, so two real attempts in one run can both report
   number == 1. Within-run ordering therefore uses `start_time`, not the number.
+
+NOTE: this shape is Phoenix-specific. The Arize AX adapter must produce the same
+`list[PriorAttempt]` contract from whatever shape AX returns.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pandas as pd
+
+from triage.memory.types import PriorAttempt
 
 PROJECT_IDENTIFIER = "triage-bug-repro"
 REPRO_ATTEMPT_SPAN_NAME = "repro_attempt"
 RUN_ROOT_SPAN_NAME = "triage_run"
-
-
-@dataclass(frozen=True)
-class PriorAttempt:
-    run_id: str                 # context.trace_id of the run this attempt belongs to
-    attempt_number: int         # attributes.attempt.number (may collide across redirects)
-    start_time: str             # honest within-run ordering key (number is unreliable)
-    reproduced: bool            # attributes.bug.detected — the honest rule-8 signal
-    fidelity_label: str         # optional enrichment from the repro_fidelity annotation
-    fidelity_score: float | None
 
 
 def _nested(row, attr: str, key: str):
@@ -54,7 +47,7 @@ def parse_prior_attempts(
     issue_url: str | None = None,
     limit: int = 5,
 ) -> list[PriorAttempt]:
-    """Shape raw spans (+ optional fidelity annotations) into PriorAttempt rows. Pure."""
+    """Shape raw Phoenix spans (+ optional fidelity annotations) into PriorAttempt rows. Pure."""
     if spans_df is None or len(spans_df) == 0:
         return []
 
@@ -104,11 +97,11 @@ def parse_prior_attempts(
     return [a for a in attempts if a.run_id in keep]
 
 
-def query_prior_runs(cfg, *, issue_url: str, limit: int = 5) -> list[PriorAttempt]:
-    """Live: fetch repro_attempt spans (+ best-effort fidelity annotations), then parse.
+def fetch_prior_run_history(cfg, *, issue_url: str, limit: int = 5) -> list[PriorAttempt]:
+    """Live Phoenix fetch (+ best-effort fidelity annotations), then parse.
 
-    May raise (network/auth) — the caller (load_learned_context) guards it. The
-    annotation fetch is best-effort: if it errors or returns nothing, history is
+    May raise (network/auth) — the seam's caller (load_learned_context) guards it.
+    The annotation fetch is best-effort: if it errors or returns nothing, history is
     still derived from the spans' `bug.detected` signal.
     """
     from phoenix.client import Client

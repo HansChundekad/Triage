@@ -1,5 +1,5 @@
 from triage.memory.distill import distill_hint
-from triage.memory.query import PriorAttempt
+from triage.memory.types import PriorAttempt
 
 
 def _run(run_id, outcomes):

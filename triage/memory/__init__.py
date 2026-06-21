@@ -1,9 +1,13 @@
-"""Phase 7.5 outer loop: read prior-run history from Arize and distill a hint.
+"""Phase 7.5 outer loop: read prior-run history from the trace backend, distill a hint.
 
 `load_learned_context` is the single guarded entry point the run drivers call at
 run start. It NEVER raises and NEVER blocks past its timeout: on flag OFF, error,
 timeout, or empty history it returns None and the run falls back to the proven
 inner loop.
+
+The backend read-back is reached only through the swappable seam
+`triage.memory.history.fetch_prior_run_history` (Phoenix today, Arize AX after the
+migration) — this module is backend-agnostic.
 """
 from __future__ import annotations
 
@@ -11,23 +15,23 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from triage.memory.distill import distill_hint
-from triage.memory.query import query_prior_runs
+from triage.memory.history import fetch_prior_run_history
 
 logger = logging.getLogger(__name__)
 
 
 def load_learned_context(cfg, *, timeout_s: float = 8.0) -> str | None:
-    """Query Arize for prior-run history of this issue → one-line hint, or None.
+    """Read prior-run history for this issue → one-line hint, or None.
 
-    Never raises; never blocks past timeout_s. NB: a hung query_prior_runs worker
-    thread is abandoned (shutdown(wait=False, cancel_futures=True)) rather than
-    waited on, so a stuck Phoenix call can never delay a repro run.
+    Never raises; never blocks past timeout_s. NB: a hung fetch_prior_run_history
+    worker thread is abandoned (shutdown(wait=False, cancel_futures=True)) rather
+    than waited on, so a stuck backend call can never delay a repro run.
     """
     if not getattr(cfg, "outer_loop_enabled", False):
         return None
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        future = pool.submit(query_prior_runs, cfg, issue_url=cfg.github_issue_url)
+        future = pool.submit(fetch_prior_run_history, cfg, issue_url=cfg.github_issue_url)
         prior = future.result(timeout=timeout_s)
         return distill_hint(prior)
     except FuturesTimeout:
