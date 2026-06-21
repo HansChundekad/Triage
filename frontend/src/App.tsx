@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import UrlInput from "./components/UrlInput";
+import LiveLog from "./components/LiveLog";
 import { startLiveRun, startReplayRun } from "./api";
 import type { RunReport, RunPhase, StreamEvent } from "./types";
 
@@ -45,9 +46,7 @@ export default function App() {
         <main className="stage">
           {/* LiveLog (Task 6) */}
           <section aria-label="run log" className="pane pane--log">
-            {events.map((e, i) => (
-              <div key={i} className="rawline">{e.type}: {JSON.stringify(e).slice(0, 120)}</div>
-            ))}
+            <LiveLog events={events} />
             {phase && <div className="phase">phase: {phase}</div>}
           </section>
           {/* BrowserView (Task 7) + ReportCard (Task 8) mount here later */}
