@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from triage.config import load_config
+from triage.memory import load_learned_context
 from triage.hypothesis_agent.agent import make_diagnosis_callback
 from triage.parser_agent.agent import format_steps_message, make_on_message, post_initial_steps
 from triage.parser_agent.github import fetch_issue
@@ -110,19 +111,21 @@ async def main(force_retry: bool = False) -> int:
         await hypothesis.connect(room_id=room_id)
         await asyncio.sleep(STABILISE)
 
-        if force_retry:
+        hint = load_learned_context(cfg)
+        if hint:
+            await parser.send_message(
+                ["ReproAgent", "HypothesisAgent"], f"🧠 Prior-run memory: {hint}")
+            await post_initial_steps(
+                cfg, anthropic_client=parser_anthropic, http_client=http_client,
+                agent=parser, issue_cache=issue_cache, run_trace=run, prior_context=hint)
+        elif force_retry:
             issue_cache["issue"] = await fetch_issue(cfg.github_issue_url, http_client=http_client)
             broken = ReproStepsPayload(issue_url=cfg.github_issue_url, steps=_FORCED_BROKEN_STEPS)
             await parser.send_message(["ReproAgent"], format_steps_message(broken))
         else:
             await post_initial_steps(
-                cfg,
-                anthropic_client=parser_anthropic,
-                http_client=http_client,
-                agent=parser,
-                issue_cache=issue_cache,
-                run_trace=run,
-            )
+                cfg, anthropic_client=parser_anthropic, http_client=http_client,
+                agent=parser, issue_cache=issue_cache, run_trace=run)
 
         deadline = time.monotonic() + WALL_CLOCK_TIMEOUT
         while not repro_state.terminal and time.monotonic() < deadline:
