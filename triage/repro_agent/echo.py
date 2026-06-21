@@ -1,85 +1,81 @@
-"""ReproAgent — Phase 3 echo (placeholder for Phase-4 browser execution).
+"""ReproAgent — Phase 4: real Browserbase/Stagehand execution.
 
-NO browser here. This stands in for the real Browserbase/Stagehand work that
-will live in this package in Phase 4. For now ReproAgent joins the shared Band
-room, logs repro steps it receives from ParserAgent, and posts ONE hardcoded
-fake repro result @mentioning HypothesisAgent — to prove three-way coordination.
+Receives ParserAgent's step list via Band @mention, runs a live Browserbase
+session, and reports real evidence @HypothesisAgent.
+
+Band wiring (Phase 3, unchanged):
+  - on_message callback: handle_parser_message
+  - run(): connect, add_participant, listen loop
 """
 from __future__ import annotations
 
-from triage.shared.band import ReproResultPayload
+import asyncio
+import logging
 
-# Literal Band handle for the @mention target (matches triage/shared/band.py).
+from triage.config import load_config
+from triage.repro_agent.browser import run_repro
+from triage.shared.band import BandAgent, ReproResultPayload
+
+logger = logging.getLogger(__name__)
+
 _HYPOTHESIS_HANDLE = "@hanschundekad/hypothesisagent"
-
-
-def build_fake_result() -> ReproResultPayload:
-    """Hardcoded placeholder result. Phase 4 replaces this with real browser evidence."""
-    return ReproResultPayload(
-        success=True,  # placeholder: we "reproduced" the reported bug
-        evidence=[
-            "Ran all 4 repro steps in PLACEHOLDER mode (no real browser yet — Phase 4).",
-            "After deleting the last todo item, the app rendered a blank screen.",
-        ],
-        console_errors=[
-            "TypeError: Cannot read properties of undefined (reading 'length') "
-            "— empty array access after delete",
-        ],
-        session_url="https://www.browserbase.com/sessions/PLACEHOLDER-phase4-not-real-yet",
-    )
 
 
 def format_result_message(result: ReproResultPayload) -> str:
     """Render a directed @HypothesisAgent message from a ReproResultPayload."""
     verdict = "BUG REPRODUCED" if result.success else "BUG NOT REPRODUCED"
     lines = [
-        f"{_HYPOTHESIS_HANDLE} repro result (Phase 3 echo — placeholder, no real browser):",
+        f"{_HYPOTHESIS_HANDLE} repro result:",
         f"verdict: {verdict}",
+        f"session_url: {result.session_url}",
         "evidence:",
         *[f"  - {e}" for e in result.evidence],
         "console_errors:",
         *[f"  - {c}" for c in result.console_errors],
-        f"session_url: {result.session_url}",
     ]
     return "\n".join(lines)
 
 
 def _sender_is_hypothesis(sender_name: str | None) -> bool:
-    """True if a message came from HypothesisAgent (so we don't echo its replies)."""
     return bool(sender_name and "hypothesis" in sender_name.lower())
 
 
-import asyncio
-import logging
-
-from triage.config import load_config
-from triage.shared.band import BandAgent
-
-logger = logging.getLogger(__name__)
-
-
 async def handle_parser_message(payload, agent) -> None:
-    """on_message callback: log received steps, then echo ONE fake result @HypothesisAgent."""
+    """on_message callback: run real browser session and report @HypothesisAgent."""
     sender = getattr(payload, "sender_name", None)
     print(f"\n[ReproAgent] << received from {sender}:")
     print(f"    {payload.content!r}")
 
     if _sender_is_hypothesis(sender):
-        print("[ReproAgent] sender is HypothesisAgent — ignoring (Phase 3 echo has no retry logic).")
+        print("[ReproAgent] sender is HypothesisAgent — ignoring (retry logic is Phase 6).")
         return
 
-    print("[ReproAgent] logging repro steps (placeholder — real browser execution is Phase 4):")
-    print(f"    {payload.content}")
+    print("[ReproAgent] launching real Browserbase session…")
+    cfg = load_config()
 
-    # events = logs (mirrors what real per-step browser logging will look like in Phase 4)
+    await agent.send_event("Starting Browserbase repro session", "task")
+
+    try:
+        result = await run_repro(cfg)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[ReproAgent] browser execution failed: %s", exc)
+        await agent.send_event(f"Browser execution error: {exc}", "error")
+        result = ReproResultPayload(
+            success=False,
+            evidence=[f"Execution error: {exc}"],
+            console_errors=[],
+            session_url="",
+        )
+
     await agent.send_event(
-        "Executed repro steps in PLACEHOLDER mode (Phase 3 echo — no real browser).",
+        f"Repro complete — bug_detected={result.success}, "
+        f"{len(result.console_errors)} console error(s)",
         "task",
     )
 
-    text = format_result_message(build_fake_result())
-    print("[ReproAgent] >> sending fake repro result @HypothesisAgent:")
-    print(text)
+    text = format_result_message(result)
+    print("[ReproAgent] >> sending real repro result @HypothesisAgent:")
+    print(text[:500], "…" if len(text) > 500 else "")
     await agent.send_message(["HypothesisAgent"], text)
     print("[ReproAgent] sent.\n")
 
@@ -102,13 +98,10 @@ async def run() -> None:
     room_id = await agent.connect(room_id=cfg.band_room_id)
     print(f"[ReproAgent] connected to room {room_id}. Listening for @mentions. Ctrl-C to stop.")
 
-    # Best-effort: make sure our echo target can actually receive it. ReproAgent
-    # proved it can add participants in Phase 2. May no-op if already a member or
-    # if ReproAgent does not own this room — log and continue either way.
     try:
         await agent.add_participant("HypothesisAgent")
         print("[ReproAgent] ensured HypothesisAgent is a room participant.")
-    except Exception as exc:  # noqa: BLE001 — defensive, non-fatal
+    except Exception as exc:  # noqa: BLE001
         print(f"[ReproAgent] could not add HypothesisAgent (may already be a member): {exc}")
 
     try:
