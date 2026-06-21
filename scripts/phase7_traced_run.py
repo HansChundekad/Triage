@@ -112,6 +112,7 @@ async def main(force_retry: bool = False) -> int:
         # --- 7B inline evaluator (runs while the root span is still open so the
         # annotations attach to live repro_attempt spans). Eval must NEVER wedge
         # the demo, so it is fully guarded. ---
+        scored = None
         try:
             from triage.eval.run_eval import run_eval
 
@@ -124,8 +125,31 @@ async def main(force_retry: bool = False) -> int:
         except Exception as exc:  # noqa: BLE001 — eval must never wedge the demo
             print(f"[phase7] eval step failed (non-fatal): {exc}")
 
-        # --- 7C synthesis hook (wired by that plan) ---
-        # from triage.synthesis.synthesize import synthesize_run; synthesize_run(cfg, artifacts, ...)
+        # --- 7C synthesis: artifacts -> Claude -> report.json (frontend contract).
+        # Inside the open root span so the `synthesis` span nests; fully guarded so
+        # synthesis can NEVER wedge the demo. ---
+        try:
+            from triage.synthesis.synthesize import synthesize_run
+
+            issue = issue_cache.get("issue")
+            issue_dict = {
+                "url": cfg.github_issue_url,
+                "title": getattr(issue, "title", ""),
+                "summary": (getattr(issue, "body", "") or "")[:280],
+            }
+            eval_scores = None
+            if scored is not None and not scored.empty:
+                last = scored.iloc[-1]
+                eval_scores = {
+                    "repro_fidelity": float(last["repro_fidelity_score"]),
+                    "root_cause_correctness": float(last["root_cause_score"]),
+                }
+            report_path = synthesize_run(
+                cfg, artifacts, client=hypothesis_anthropic, issue=issue_dict,
+                hypothesis_root_cause="", eval_scores=eval_scores, run_trace=run)
+            print(f"[phase7] report written: {report_path}")
+        except Exception as exc:  # noqa: BLE001 — synthesis must never wedge the demo
+            print(f"[phase7] synthesis step failed (non-fatal): {exc}")
 
         print("\n=== RUN SUMMARY ===")
         print(f"terminal: {repro_state.terminal}  attempts: {repro_state.attempts}/{repro_state.max_attempts}")
