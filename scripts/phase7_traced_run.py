@@ -109,8 +109,22 @@ async def main(force_retry: bool = False) -> int:
         while not repro_state.terminal and time.monotonic() < deadline:
             await asyncio.sleep(1)
 
-        # --- 7B inline evaluator + 7C synthesis hook (wired by those plans) ---
-        # from triage.eval.run_eval import run_eval; run_eval(cfg, repro_state, artifacts)
+        # --- 7B inline evaluator (runs while the root span is still open so the
+        # annotations attach to live repro_attempt spans). Eval must NEVER wedge
+        # the demo, so it is fully guarded. ---
+        try:
+            from triage.eval.run_eval import run_eval
+
+            scored = run_eval(cfg, repro_state, artifacts, hypothesis_root_cause="")
+            if scored.empty:
+                print("[phase7] eval: no attempts to score")
+            else:
+                print("[phase7] eval scored attempts:")
+                print(scored[["attempt_number", "repro_fidelity_label", "root_cause_label"]])
+        except Exception as exc:  # noqa: BLE001 — eval must never wedge the demo
+            print(f"[phase7] eval step failed (non-fatal): {exc}")
+
+        # --- 7C synthesis hook (wired by that plan) ---
         # from triage.synthesis.synthesize import synthesize_run; synthesize_run(cfg, artifacts, ...)
 
         print("\n=== RUN SUMMARY ===")
