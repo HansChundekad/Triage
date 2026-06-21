@@ -65,7 +65,7 @@ async def main() -> int:
         on_message=make_diagnosis_callback(hypo_client, cfg.band_repro.agent_id),
     )
 
-    print("\n=== TRIAGE Phase 3 — HypothesisAgent Echo Demo ===\n")
+    print("\n=== TRIAGE Phase 5 — HypothesisAgent Diagnosis Demo ===\n")
 
     # ReproAgent stand-in creates/joins the room and must add HypothesisAgent
     # as a participant BEFORE HypothesisAgent subscribes (Band requires it).
