@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import UrlInput from "./components/UrlInput";
 import LiveLog from "./components/LiveLog";
+import BrowserView from "./components/BrowserView";
 import { startLiveRun, startReplayRun } from "./api";
-import type { RunReport, RunPhase, StreamEvent } from "./types";
+import type { RunReport, RunPhase, StreamEvent, SessionInfo } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 
@@ -14,19 +15,23 @@ export default function App() {
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [report, setReport] = useState<RunReport | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [mode, setMode] = useState<"live" | "replay">("replay");
   const cancelRef = useRef<null | (() => void)>(null);
 
   function onEvent(e: StreamEvent) {
     setEvents((prev) => [...prev, e]);
+    if (e.type === "session") setSession(e.session);
     if (e.type === "status") setPhase(e.phase);
     if (e.type === "report") { setReport(e.report); setStatus("report"); }
     if (e.type === "error") { setErrorMsg(e.message); setStatus("error"); }
   }
 
-  function onRun(mode: "live" | "replay", url: string) {
+  function onRun(runMode: "live" | "replay", url: string) {
     cancelRef.current?.();
     setEvents([]); setReport(null); setErrorMsg(""); setPhase(null); setStatus("running");
-    cancelRef.current = mode === "replay"
+    setSession(null); setMode(runMode);
+    cancelRef.current = runMode === "replay"
       ? startReplayRun(onEvent)
       : startLiveRun(API_BASE, url, onEvent);
   }
@@ -49,7 +54,7 @@ export default function App() {
             <LiveLog events={events} />
             {phase && <div className="phase">phase: {phase}</div>}
           </section>
-          {/* BrowserView (Task 7) + ReportCard (Task 8) mount here later */}
+          <BrowserView session={session} live={mode === "live"} />
           {report && <pre className="pane pane--report">{JSON.stringify(report, null, 2)}</pre>}
         </main>
       )}

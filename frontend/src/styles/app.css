@@ -52,3 +52,12 @@ body {
 .log__agent { color: var(--gold-dim); }
 @keyframes linein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .log__msg, .log__step { animation: none; } }
+.browser { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; display: flex; flex-direction: column; }
+.browser__frame { width: 100%; aspect-ratio: 16 / 10; border: 0; background: #000; }
+.browser__link { display: flex; justify-content: space-between; align-items: center; gap: var(--s4);
+  padding: var(--s3) var(--s4); color: var(--gold); font-weight: 600; text-decoration: none; }
+.browser__link:hover { background: var(--surface); }
+.browser__sid { color: var(--muted); font-family: var(--font-mono); font-size: var(--t-xs); font-weight: 400; }
+.browser--empty { padding: var(--s6); text-align: center; }
+.browser__hint { color: var(--muted); font-size: var(--t-sm); }
