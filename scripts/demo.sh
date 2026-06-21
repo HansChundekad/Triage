@@ -20,4 +20,8 @@ cd "$(dirname "$0")/.."
 # it OFF here so the demo produces the identical fail→succeed every single run.
 export TRIAGE_OUTER_LOOP=0
 
+# Auto-open each attempt's Browserbase live view in a new browser tab, so the
+# presenter never has to return to the terminal for the per-retry URL.
+export TRIAGE_OPEN_LIVE_VIEW=1
+
 exec .venv/bin/python scripts/phase7_traced_run.py --force-retry

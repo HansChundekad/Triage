@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -139,6 +140,16 @@ async def run_repro(
             "  └──────────────────────────────────────────────────────────────\n",
             flush=True,
         )
+        # Demo convenience (opt-in via TRIAGE_OPEN_LIVE_VIEW=1, set by scripts/demo.sh):
+        # pop each attempt's live view in a new browser tab so the presenter never has
+        # to return to the terminal for the per-retry URL. Opens the native Browserbase
+        # dashboard — nothing embedded. Guarded so it can never wedge a run.
+        if os.environ.get("TRIAGE_OPEN_LIVE_VIEW") == "1":
+            try:
+                import webbrowser
+                webbrowser.open(session_url)
+            except Exception:  # noqa: BLE001 — a convenience must never break the run
+                pass
         logger.info("[ReproAgent] session %s — live/replay: %s", session_id, session_url)
         evidence.append(f"Browserbase session: {session_id}")
         evidence.append(f"Replay URL: {session_url}")
