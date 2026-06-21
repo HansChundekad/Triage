@@ -128,7 +128,18 @@ async def run_repro(
         session_id = session.id
         session_url = f"https://www.browserbase.com/sessions/{session_id}"
         cdp_url = session.data.cdp_url
-        logger.info("[ReproAgent] session %s — replay: %s", session_id, session_url)
+        # Prominent, demo-visible live view: while the session is ACTIVE this page
+        # streams the real browser live; it becomes the replay once the session ends.
+        # Each attempt is a fresh session, so this prints once per attempt.
+        print(
+            "\n  ┌─ 🌐 BROWSERBASE LIVE VIEW "
+            f"(attempt {attempt}) ───────────────────────────\n"
+            f"  │  watch the browser click through live (replay after it ends):\n"
+            f"  │  {session_url}\n"
+            "  └──────────────────────────────────────────────────────────────\n",
+            flush=True,
+        )
+        logger.info("[ReproAgent] session %s — live/replay: %s", session_id, session_url)
         evidence.append(f"Browserbase session: {session_id}")
         evidence.append(f"Replay URL: {session_url}")
 

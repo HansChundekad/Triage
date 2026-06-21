@@ -45,6 +45,14 @@ class RunTrace:
         self._root_ctx = trace.set_span_in_context(self._root)
         return self
 
+    @property
+    def trace_id(self) -> str:
+        """The run's 32-hex trace id (AX trace_id format), or '' before the root opens.
+        Lets a driver print a pointer to the exact hero trace in the AX UI."""
+        if self._root is None:
+            return ""
+        return format(self._root.get_span_context().trace_id, "032x")
+
     def __exit__(self, exc_type, exc, tb) -> None:
         if exc is not None:
             self._root.record_exception(exc)
@@ -103,6 +111,7 @@ class NullRunTrace:
     """No-op RunTrace for the untraced/test path. Same interface."""
 
     span_ids: dict[int, str] = {}
+    trace_id = ""
 
     def __enter__(self) -> "NullRunTrace":
         return self

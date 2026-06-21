@@ -8,6 +8,7 @@ Mirrors scripts/phase6_live_run.py; --force-retry drives a real fail->succeed.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time
 
@@ -16,6 +17,33 @@ import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Legible demo console: surface triage's own INFO lines (ReproAgent navigation,
+# steps, detection) without the third-party DEBUG/INFO noise.
+logging.basicConfig(level=logging.WARNING, format="%(message)s")
+logging.getLogger("triage").setLevel(logging.INFO)
+
+
+def banner(title: str) -> None:
+    """A loud, screen-recordable stage marker."""
+    print(f"\n{'═' * 70}\n  ▶ {title}\n{'═' * 70}", flush=True)
+
+
+def attach_transcript_print(agent):
+    """Mirror every directed @mention message to the console as a live Band
+    transcript, so the three agents' coordination (Parser→Repro→Hypothesis→
+    redirect→retry) is followable/recordable in real time. Wraps the bound
+    send_message at composition time (same technique as backend/run_manager.py's
+    _tap); band.py is untouched."""
+    orig = agent.send_message
+
+    async def send(mentions, text):
+        to = ", ".join(mentions) if mentions else "(no recipient)"
+        print(f"  💬 {agent.name} → {to}:\n     {text.strip()[:300]}", flush=True)
+        return await orig(mentions, text)
+
+    agent.send_message = send  # type: ignore[method-assign]
+    return agent
 
 from triage.config import load_config
 from triage.memory import load_learned_context
@@ -102,6 +130,20 @@ async def main(force_retry: bool = False) -> int:
         # Capture the diagnosis so eval + synthesis judge the real root cause (not
         # ""). Wrap before connect so every HypothesisAgent outbound is recorded.
         diagnosis = attach_diagnosis_capture(hypothesis)
+        # Live Band transcript to the console (all three agents).
+        for a in (parser, repro, hypothesis):
+            attach_transcript_print(a)
+
+        banner("WHERE TO WATCH (3 live surfaces)")
+        print(
+            "  1) 🌐 Browserbase LIVE VIEW  — a URL prints below at EACH attempt start\n"
+            "  2) 💬 Band transcript        — streams live in THIS console (💬 lines)\n"
+            f"  3) 📊 Arize AX trace         — trace_id prints at the end; open project\n"
+            f"        '{cfg.arize_project_name}' and click the newest 'triage_run' trace\n"
+            f"     (trace backend: {cfg.trace_backend})",
+            flush=True,
+        )
+        print(f"\n  AX hero trace_id (this run): {run.trace_id}", flush=True)
 
         room_id = await repro.connect(room_id=cfg.band_room_id)
         if cfg.band_room_id is None:
@@ -111,6 +153,7 @@ async def main(force_retry: bool = False) -> int:
         await hypothesis.connect(room_id=room_id)
         await asyncio.sleep(STABILISE)
 
+        banner(f"ISSUE → PARSE  ({cfg.github_issue_url})")
         hint = load_learned_context(cfg)
         if hint:
             await parser.send_message(
@@ -119,6 +162,9 @@ async def main(force_retry: bool = False) -> int:
                 cfg, anthropic_client=parser_anthropic, http_client=http_client,
                 agent=parser, issue_cache=issue_cache, run_trace=run, prior_context=hint)
         elif force_retry:
+            print("  (forced demo: ParserAgent posts deliberately-incomplete steps so\n"
+                  "   attempt 1 FAILS, HypothesisAgent redirect_parsers, then it re-parses)",
+                  flush=True)
             issue_cache["issue"] = await fetch_issue(cfg.github_issue_url, http_client=http_client)
             broken = ReproStepsPayload(issue_url=cfg.github_issue_url, steps=_FORCED_BROKEN_STEPS)
             await parser.send_message(["ReproAgent"], format_steps_message(broken))
@@ -127,6 +173,7 @@ async def main(force_retry: bool = False) -> int:
                 cfg, anthropic_client=parser_anthropic, http_client=http_client,
                 agent=parser, issue_cache=issue_cache, run_trace=run)
 
+        banner("LIVE REPRO LOOP  (drive browser → diagnose → redirect → retry)")
         deadline = time.monotonic() + WALL_CLOCK_TIMEOUT
         while not repro_state.terminal and time.monotonic() < deadline:
             await asyncio.sleep(1)
@@ -134,6 +181,7 @@ async def main(force_retry: bool = False) -> int:
         # --- 7B inline evaluator (runs while the root span is still open so the
         # annotations attach to live repro_attempt spans). Eval must NEVER wedge
         # the demo, so it is fully guarded. ---
+        banner("EVALUATE  (per-attempt LLM judges → eval.* on AX spans)")
         scored = None
         try:
             from triage.eval.run_eval import run_eval
@@ -152,6 +200,7 @@ async def main(force_retry: bool = False) -> int:
         # --- 7C synthesis: artifacts -> Claude -> report.json (frontend contract).
         # Inside the open root span so the `synthesis` span nests; fully guarded so
         # synthesis can NEVER wedge the demo. ---
+        banner("SYNTHESIZE REPORT  (artifacts → Claude → report.json)")
         try:
             from triage.synthesis.synthesize import synthesize_run
 
@@ -179,10 +228,17 @@ async def main(force_retry: bool = False) -> int:
         except Exception as exc:  # noqa: BLE001 — synthesis must never wedge the demo
             print(f"[phase7] synthesis step failed (non-fatal): {exc}")
 
-        print("\n=== RUN SUMMARY ===")
-        print(f"terminal: {repro_state.terminal}  attempts: {repro_state.attempts}/{repro_state.max_attempts}")
+        banner("RUN SUMMARY")
+        verdict = "REPRODUCED ✅" if repro_state.terminal and repro_state.attempts else "not terminal ⚠️"
+        print(f"  verdict: {verdict}   attempts: {repro_state.attempts}/{repro_state.max_attempts}")
+        print("  Browserbase sessions (one per attempt — live during run, replay after):")
         for i, url in enumerate(repro_state.session_urls, 1):
-            print(f"  attempt {i}: {url}")
+            print(f"    attempt {i}: {url}")
+        print("\n  📊 Arize AX — open the hero trace now:")
+        print(f"     project : {cfg.arize_project_name}  (backend: {cfg.trace_backend})")
+        print(f"     trace_id: {run.trace_id}")
+        print("     → newest 'triage_run' trace = two repro_attempt spans, per-step")
+        print("       spans under both, and two distinct eval scores.\n")
 
         await parser.disconnect()
         await hypothesis.disconnect()
