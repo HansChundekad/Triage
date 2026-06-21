@@ -43,14 +43,18 @@ def format_result_message(result: ReproResultPayload) -> str:
     return "\n".join(lines)
 
 
-def make_repro_callback(cfg, state: ReproLoopState | None = None):
+def make_repro_callback(cfg, state: ReproLoopState | None = None, *, run_trace=None, artifacts=None):
     """Build the stateful on_message callback (one ReproLoopState per process).
 
     Mirrors hypothesis_agent.make_diagnosis_callback: a closure so retry state
     survives across messages. Routes by classify_message; all browser work is
     delegated to _run_attempt -> run_repro (fresh session each call).
     """
+    from triage.tracing.run_context import NullRunTrace
+    from triage.tracing.artifacts import NullRunArtifacts
     state = state if state is not None else ReproLoopState()
+    run_trace = run_trace if run_trace is not None else NullRunTrace()
+    artifacts = artifacts if artifacts is not None else NullRunArtifacts()
 
     async def on_message(payload, agent) -> None:
         sender = getattr(payload, "sender_name", None)
@@ -68,7 +72,7 @@ def make_repro_callback(cfg, state: ReproLoopState | None = None):
         if kind == "steps":
             state.reset(parse_steps(payload.content))
             print(f"[ReproAgent] parsed {len(state.steps)} steps — starting cycle.")
-            await _run_attempt(cfg, state, agent, tweak=None)
+            await _run_attempt(cfg, state, agent, tweak=None, run_trace=run_trace, artifacts=artifacts)
             return
 
         # Once terminal (confirmed OR gave up), ignore every other message so
@@ -97,7 +101,7 @@ def make_repro_callback(cfg, state: ReproLoopState | None = None):
                 f"redirected — retrying with tweak: {tweak!r}",
                 "task",
             )
-            await _run_attempt(cfg, state, agent, tweak=tweak)
+            await _run_attempt(cfg, state, agent, tweak=tweak, run_trace=run_trace, artifacts=artifacts)
 
         elif kind == "confirm":
             state.terminal = True
@@ -112,27 +116,55 @@ def make_repro_callback(cfg, state: ReproLoopState | None = None):
     return on_message
 
 
-async def _run_attempt(cfg, state: ReproLoopState, agent, tweak: str | None) -> None:
+async def _run_attempt(cfg, state: ReproLoopState, agent, tweak: str | None, *, run_trace=None, artifacts=None) -> None:
     """Run one browser attempt (fresh session) and post the result."""
+    from triage.tracing.run_context import NullRunTrace, set_span_ok
+    from triage.tracing.artifacts import NullRunArtifacts
+    run_trace = run_trace if run_trace is not None else NullRunTrace()
+    artifacts = artifacts if artifacts is not None else NullRunArtifacts()
+
     state.attempts += 1
     await agent.send_event(
         f"Starting Browserbase repro attempt {state.attempts}/{state.max_attempts}"
         + (f" (tweak: {tweak})" if tweak else ""),
         "task",
     )
-    try:
-        result = await run_repro(cfg, state.steps, tweak=tweak)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("[ReproAgent] browser execution failed: %s", exc)
-        await agent.send_event(f"Browser execution error: {exc}", "error")
-        result = ReproResultPayload(
-            success=False,
-            evidence=[f"Execution error: {exc}"],
-            console_errors=[],
-            session_url="",
-        )
+    with run_trace.attempt_span(state.attempts) as attempt_span:
+        if attempt_span is not None:
+            attempt_span.set_attribute("github.issue_url", cfg.github_issue_url)
+            attempt_span.set_attribute("app.url", cfg.app_url)
+        try:
+            with run_trace.child_span("browser_execution", attempt_span) as be:
+                result = await run_repro(
+                    cfg, state.steps, tweak=tweak, run_trace=run_trace,
+                    artifacts=artifacts, attempt=state.attempts,
+                    browser_execution_span=be,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[ReproAgent] browser execution failed: %s", exc)
+            await agent.send_event(f"Browser execution error: {exc}", "error")
+            result = ReproResultPayload(
+                success=False,
+                evidence=[f"Execution error: {exc}"],
+                console_errors=[],
+                session_url="",
+            )
+
+        if attempt_span is not None:
+            attempt_span.set_attribute("bug.detected", bool(result.success))
+            attempt_span.set_attribute("browserbase.session_url", result.session_url)
+            set_span_ok(attempt_span, bool(result.success))
+
     if result.session_url:
         state.session_urls.append(result.session_url)  # keep replay URL (Phase 7)
+    artifacts.record_attempt({
+        "attempt": state.attempts,
+        "steps": list(state.steps),
+        "evidence": result.evidence,
+        "console_errors": result.console_errors,
+        "session_url": result.session_url,
+        "bug_detected": bool(result.success),
+    })
     await agent.send_event(
         f"Attempt {state.attempts} complete — bug_detected={result.success}, "
         f"{len(result.console_errors)} console error(s)",
