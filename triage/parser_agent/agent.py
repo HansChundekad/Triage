@@ -10,6 +10,7 @@ import logging
 from triage.parser_agent.claude import extract_steps
 from triage.parser_agent.github import fetch_issue
 from triage.shared.band import AgentName, ReproStepsPayload
+from triage.tracing.run_context import NullRunTrace
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +48,20 @@ async def post_initial_steps(
     http_client,
     agent,
     issue_cache: dict,
+    run_trace=None,
 ) -> None:
     """Fetch the configured issue, parse it, and post the steps @ReproAgent."""
+    trace = run_trace if run_trace is not None else NullRunTrace()
     issue = await fetch_issue(cfg.github_issue_url, http_client=http_client)
     issue_cache["issue"] = issue
-    payload = await extract_steps(issue, client=anthropic_client)
+    with trace.claude_span("parser_extract_steps"):
+        payload = await extract_steps(issue, client=anthropic_client)
     text = format_steps_message(payload)
     logger.info("[ParserAgent] posting %d steps @ReproAgent", len(payload.steps))
     await agent.send_message(["ReproAgent"], text)
 
 
-def make_on_message(cfg, *, anthropic_client, http_client, issue_cache: dict):
+def make_on_message(cfg, *, anthropic_client, http_client, issue_cache: dict, run_trace=None):
     """Build the async on_message callback for ParserAgent.
 
     Reacts only to redirects from ReproAgent / HypothesisAgent (a message that
@@ -65,6 +69,7 @@ def make_on_message(cfg, *, anthropic_client, http_client, issue_cache: dict):
     feedback woven in, and re-posts revised steps @ReproAgent. Self-messages and
     unknown senders are ignored.
     """
+    trace = run_trace if run_trace is not None else NullRunTrace()
 
     async def on_message(payload, agent) -> None:
         sender = sender_agent_name(payload.sender_id, cfg)
@@ -81,9 +86,10 @@ def make_on_message(cfg, *, anthropic_client, http_client, issue_cache: dict):
             issue_cache["issue"] = await fetch_issue(
                 cfg.github_issue_url, http_client=http_client
             )
-        payload_out = await extract_steps(
-            issue_cache["issue"], client=anthropic_client, redirect=redirect
-        )
+        with trace.claude_span("parser_extract_steps"):
+            payload_out = await extract_steps(
+                issue_cache["issue"], client=anthropic_client, redirect=redirect
+            )
         await agent.send_message(["ReproAgent"], format_steps_message(payload_out))
 
     return on_message

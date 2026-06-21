@@ -23,6 +23,7 @@ import anthropic
 from triage.config import Config, load_config
 from triage.hypothesis_agent.reasoning import MODEL, Diagnosis, diagnose
 from triage.shared.band import AgentName, BandAgent, HypothesisPayload
+from triage.tracing.run_context import NullRunTrace
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ def make_diagnosis_callback(
     client,
     repro_agent_id: str,
     model: str = MODEL,
+    run_trace=None,
 ) -> Callable[[object, BandAgent], Coroutine]:
     """Build the on_message callback.
 
@@ -75,6 +77,7 @@ def make_diagnosis_callback(
     then posts the diagnosis as a directed @mention. Everything is printed so
     @mention routing is watchable in the demo.
     """
+    trace = run_trace if run_trace is not None else NullRunTrace()
 
     async def on_message(payload, agent: BandAgent) -> None:
         print(
@@ -91,7 +94,8 @@ def make_diagnosis_callback(
         await agent.send_event("Diagnosing repro evidence with Claude", "thought")
 
         try:
-            diagnosis = await asyncio.to_thread(diagnose, payload.content, client, model)
+            with trace.claude_span("hypothesis_generation"):
+                diagnosis = await asyncio.to_thread(diagnose, payload.content, client, model)
         except Exception as exc:  # noqa: BLE001
             logger.error("[%s] diagnosis failed: %s", agent.name, exc)
             await agent.send_event(f"Diagnosis error: {exc}", "error")
