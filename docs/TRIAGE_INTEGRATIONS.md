@@ -200,30 +200,65 @@ Three agents = three live WebSocket connections to keep alive simultaneously at 
 
 ---
 
-## 4. Arize Phoenix
+## 4. Arize AX (primary) — Phoenix fallback
 
 **Role in TRIAGE:** makes the retry intelligence *visible*. Each repro attempt is a trace; judges watch the agent fail, adjust, and succeed across retries in a visual trace tree. The bounty bar is literally "evidence that Arize was used and **improved** the application" — so it must show improvement on-screen, not silently log.
 
-**Verify current details before coding:**
-- Packages: `arize-phoenix`, `openinference-instrumentation-anthropic`, `opentelemetry-sdk`.
-- Confirm `phoenix.otel.register` signature and the collector endpoint against live docs.
+**The sponsor judges on Arize AX** (`app.arize.com`), not open-source Phoenix. The trace backend is therefore **Arize AX by default**; Phoenix is kept as a fallback behind the `TRIAGE_TRACE_BACKEND` selector. Phoenix and AX share the OpenTelemetry/OpenInference foundation, so the span structure / parent-child tree / retry-loop instrumentation are identical across both — only the write endpoint, the read-back query, and the eval-logging API differ.
 
-### 4.1 Tracing setup (Python)
+**Verified against the installed SDK + live docs (2026-06-21):**
+- Packages: `arize-otel` (write), `arize` (read + eval logging), `arize-ax-cli` (the `ax` CLI), plus `openinference-instrumentation-anthropic`, `opentelemetry-sdk`.
+- Phoenix fallback packages: `arize-phoenix`, `arize-phoenix-client`, `arize-phoenix-evals` (the last is also the **local** judge engine, used by both backends).
+
+### 4.1 Tracing setup — WRITE path (Python)
 
 ```bash
-pip install arize-phoenix openinference-instrumentation-anthropic opentelemetry-sdk
+pip install arize-otel arize arize-ax-cli openinference-instrumentation-anthropic opentelemetry-sdk
 ```
 
 ```python
-from phoenix.otel import register
+from arize.otel import register
 
 tracer_provider = register(
+    space_id=ARIZE_SPACE_ID,        # base64 "U3BhY2U6..."
+    api_key=ARIZE_API_KEY,          # "ak-..."
     project_name="triage-bug-repro",
-    auto_instrument=True   # auto-captures Anthropic/Claude calls as spans
+    auto_instrument=True,           # auto-captures Anthropic/Claude calls as spans
+    batch=False,                    # SimpleSpanProcessor → immediate export (no exit-flush needed)
 )
 ```
 
-With `auto_instrument=True`, all Claude/Anthropic calls become spans (prompts, completions, token counts) automatically.
+`register()` exports OpenInference spans to **`otlp.arize.com`** (gRPC); creds ride as OTLP headers (no Phoenix env vars). `auto_instrument=True` turns Claude/Anthropic calls into spans automatically. `batch=False` mirrors Phoenix's immediate-export behaviour so the short-lived harness scripts need no `force_flush`/`shutdown`. In TRIAGE this lives in `triage/tracing/setup.py`, selected by `cfg.trace_backend`.
+
+### 4.1b READ-back + eval-logging (the AX-specific surfaces)
+
+```python
+from arize import ArizeClient
+client = ArizeClient(api_key=ARIZE_API_KEY)
+
+# READ prior-run history (also available via `ax spans export ... --stdout`):
+df = client.spans.export_to_df(space_id=ARIZE_SPACE_ID, project_name="triage-bug-repro",
+                               start_time=..., end_time=..., where="name IN ('triage_run','repro_attempt')")
+
+# LOG evaluators onto existing spans (Flight write by context.span_id — no query-back):
+client.spans.update_evaluations(space_id=ARIZE_SPACE_ID, project_name="triage-bug-repro",
+                                dataframe=eval_df)  # eval.<name>.label/.score/.explanation
+```
+
+TRIAGE reads prior runs via the **`ax` CLI** (`triage/memory/backends/ax.py`) and logs the in-code judge results via `spans.update_evaluations` (`triage/eval/run_eval.py`), keyed by span-ids captured in-process at span creation.
+
+> **AX index lag (R-LAG):** the time-series query index lags ~6–12h and the eval index ~1–2h. By-`--trace-id` lookups hit the primary store and are immediate (use them to verify ingestion); filter/time-range queries and eval **visibility** lag. The eval *write* (`update_evaluations`) is immediate and authoritative regardless.
+
+### 4.1c Verifying with the `ax` CLI
+
+```bash
+ax profiles create default --api-key "$ARIZE_API_KEY" --auth-method api-key   # one-time
+ax spans export <project-id> --trace-id <TRACE_ID> --output-dir .arize-tmp-traces   # immediate
+```
+
+### 4.1d Phoenix fallback
+
+Set `TRIAGE_TRACE_BACKEND=phoenix` and provide `PHOENIX_API_KEY` (a JWT `eyJ...`, NOT an `ak-...` key) + a space-scoped `PHOENIX_COLLECTOR_ENDPOINT` (`https://app.phoenix.arize.com/s/<space>`). `triage/tracing/setup.py` then registers `phoenix.otel.register(project_name="triage-bug-repro", auto_instrument=True)` and the read-back uses `triage/memory/backends/phoenix.py`.
 
 ### 4.2 Manual spans (the part that tells the story)
 
@@ -257,8 +292,15 @@ with tracer.start_as_current_span("repro_attempt") as span:
 ### 4.4 Env vars
 
 ```
-PHOENIX_API_KEY=...
-PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com   # or self-hosted URL
+# Primary (Arize AX):
+TRIAGE_TRACE_BACKEND=ax
+ARIZE_API_KEY=ak-...
+ARIZE_SPACE_ID=U3BhY2U6...
+ARIZE_PROJECT_NAME=triage-bug-repro
+
+# Fallback (Phoenix), only when TRIAGE_TRACE_BACKEND=phoenix:
+PHOENIX_API_KEY=eyJ...
+PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/<space>
 ```
 
 ---
@@ -271,8 +313,12 @@ PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com   # or self-hosted URL
 | `BROWSERBASE_PROJECT_ID` | Browserbase | dashboard → project settings |
 | `BAND_API_KEY` (×3, per agent) | Band | dashboard → agent registration |
 | `BAND_AGENT_ID` (×3, per agent) | Band | dashboard → agent UUID |
-| `PHOENIX_API_KEY` | Arize Phoenix | app.phoenix.arize.com → settings |
-| `PHOENIX_COLLECTOR_ENDPOINT` | Arize Phoenix | cloud default above, or self-hosted |
+| `TRIAGE_TRACE_BACKEND` | TRIAGE | `ax` (primary) or `phoenix` (fallback); default `ax` |
+| `ARIZE_API_KEY` | Arize AX | app.arize.com → Settings → API Keys (`ak-...`) |
+| `ARIZE_SPACE_ID` | Arize AX | app.arize.com (base64 `U3BhY2U6...`) |
+| `ARIZE_PROJECT_NAME` | Arize AX | defaults to `triage-bug-repro` |
+| `PHOENIX_API_KEY` | Arize Phoenix (fallback) | app.phoenix.arize.com → settings (JWT `eyJ...`) |
+| `PHOENIX_COLLECTOR_ENDPOINT` | Arize Phoenix (fallback) | space-scoped `…/s/<space>` |
 
 ---
 

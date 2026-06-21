@@ -17,11 +17,16 @@ dependencies = [
     "band-sdk",                                   # Band coordination (Phase: Band)
     "stagehand",                                  # Browserbase driver (ReproAgent)
     "playwright",                                  # CDP screenshots + console errors (ReproAgent)
-    "arize-phoenix>=17.9",                        # tracing (Phase: Arize) — verified 2026-06-20
-    "openinference-instrumentation-anthropic>=1.0.6",  # auto-instrument Claude calls
+    # --- Arize AX (PRIMARY trace backend) — verified 2026-06-21 ---
+    "arize-otel>=0.13",                           # arize.otel.register → otlp.arize.com (WRITE path)
+    "arize>=8.35",                                # ArizeClient: spans.update_evaluations (eval logging)
+    "arize-ax-cli>=0.25",                         # `ax` CLI: spans export (READ-back) + verification
+    # --- Arize Phoenix (FALLBACK backend + LOCAL judge engine) — verified 2026-06-20 ---
+    "arize-phoenix>=17.9",                        # tracing fallback (TRIAGE_TRACE_BACKEND=phoenix)
+    "openinference-instrumentation-anthropic>=1.0.6",  # auto-instrument Claude calls (both backends)
     "opentelemetry-sdk>=1.42",                    # manual retry spans
-    "arize-phoenix-evals>=3.1",                   # LLM-judge evaluator (Phase 7B) — verified 2026-06-20
-    "arize-phoenix-client>=2.9",                  # log_span_annotations_dataframe (Phase 7B)
+    "arize-phoenix-evals>=3.1",                   # LOCAL LLM-judge engine (backend-agnostic, Phase 7B)
+    "arize-phoenix-client>=2.9",                  # Phoenix annotation fallback (Phase 7B)
     "pandas>=2.0",                                # eval dataframes (Phase 7B)
 ]
 

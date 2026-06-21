@@ -20,7 +20,7 @@ The inner loop alone clears the bounty bar. Do not delete this tag. Keep 7.5 wor
 
 ## TL;DR
 
-The **inner loop is closed and observable**. Three real agents coordinate in one Band room over @mentions: ParserAgent (GitHub issue → steps), ReproAgent (drives a real Browserbase browser), HypothesisAgent (diagnoses, routes `confirm`/`redirect_repro`/`redirect_parser`). On a redirect, ReproAgent spins a **fresh** Browserbase session and retries, bounded by a hard cap. The whole run is wrapped in **Arize Phoenix** spans; per-attempt **evaluators** score it; Claude **synthesizes** a report the frontend renders.
+The **inner loop is closed and observable**. Three real agents coordinate in one Band room over @mentions: ParserAgent (GitHub issue → steps), ReproAgent (drives a real Browserbase browser), HypothesisAgent (diagnoses, routes `confirm`/`redirect_repro`/`redirect_parser`). On a redirect, ReproAgent spins a **fresh** Browserbase session and retries, bounded by a hard cap. The whole run is wrapped in **Arize AX** spans (Phoenix fallback behind `TRIAGE_TRACE_BACKEND`); per-attempt **evaluators** score it; Claude **synthesizes** a report the frontend renders.
 
 **Phase 7.5 is the OUTER loop:** feed the Arize evaluation of attempt _N_ back into the retry decision for attempt _N+1_ — so the system reads its own scored history and adjusts. Today the loop adjusts from the *raw repro evidence* (HypothesisAgent's diagnosis); 7.5 makes it also adjust from the *eval scores* that Arize holds. This is the "closing the outer loop" piece and the **riskiest remaining work** because it touches the proven loop.
 
@@ -118,7 +118,7 @@ There are **two** ways eval scores are produced, and they behave differently. 7.
 cd frontend && npm test && npx tsc -b  # 15 frontend + typecheck
 ```
 
-Required `.env` (all present locally; keep `.env.example` in sync): Band ×3 identities, `ANTHROPIC_API_KEY`, `BROWSERBASE_*`, `TRIAGE_GITHUB_ISSUE_URL`, `TRIAGE_APP_URL`, `PHOENIX_API_KEY` (JWT), `PHOENIX_COLLECTOR_ENDPOINT` (`…/s/hanschundekad`).
+Required `.env` (all present locally; keep `.env.example` in sync): Band ×3 identities, `ANTHROPIC_API_KEY`, `BROWSERBASE_*`, `TRIAGE_GITHUB_ISSUE_URL`, `TRIAGE_APP_URL`, and the trace-backend vars — **primary:** `TRIAGE_TRACE_BACKEND=ax`, `ARIZE_API_KEY` (`ak-…`), `ARIZE_SPACE_ID` (base64), `ARIZE_PROJECT_NAME` (defaults `triage-bug-repro`); **fallback (`TRIAGE_TRACE_BACKEND=phoenix`):** `PHOENIX_API_KEY` (JWT), `PHOENIX_COLLECTOR_ENDPOINT` (`…/s/hanschundekad`).
 
 ---
 
@@ -161,23 +161,28 @@ fn + the `prior_context=` kwarg); harness (`phase7_traced_run.py`) is delete the
 `hint = …` / `if hint:` block **and** restore `elif force_retry:` → `if force_retry:`.
 The inner loop (`loop.py`/`echo.py`/`reasoning.py`) and `band.py` are untouched.
 
-**Backend split (Phoenix → Arize AX migration).** The sponsor judges on **Arize AX**
-(`app.arize.com`), not the open-source Phoenix surface we instrumented against. A
-**separate migration** repoints the trace backend; that is NOT part of 7.5.
-Instrumentation (span writing, retry-loop wrapping, parent/child structure) is
-backend-agnostic and survives the migration unchanged. Only the read-back query is
-surface-specific, so it lives behind one seam:
+**Backend split (Phoenix → Arize AX migration — DONE 2026-06-21).** The sponsor judges
+on **Arize AX** (`app.arize.com`), so the trace backend was migrated Phoenix → AX. It
+is a **config/endpoint** migration: the OpenInference span structure, the retry-loop
+wrapping, the parent/child tree, and the local LLM-judge engine (`phoenix.evals`) are
+backend-agnostic and unchanged. A single selector `cfg.trace_backend`
+(`TRIAGE_TRACE_BACKEND`, default **`ax`**) drives all three repointed surfaces; set it
+to `phoenix` to fall back to the still-working Phoenix path. Rollback tag:
+**`pre-ax-migration`** (`08b254f`).
 
-- `triage/memory/history.py` — `fetch_prior_run_history(cfg, *, issue_url, limit)` +
-  `TRACE_BACKEND` selector. **The single place to swap backends.**
-- `triage/memory/backends/phoenix.py` — working, live-verified Phoenix adapter.
-- `triage/memory/backends/ax.py` — **stub for the migration agent**: implement it to
-  return the same `list[PriorAttempt]` and set `TRACE_BACKEND = "ax"`. Do **not**
-  change the collector endpoint / keys / `phoenix.otel.register` from the seam.
-- `triage/memory/types.py` — backend-agnostic `PriorAttempt` contract.
+- **WRITE** (`triage/tracing/setup.py`) — `arize.otel.register(space_id, api_key,
+  project_name, auto_instrument=True, batch=False)` → `otlp.arize.com`. Live-verified.
+- **READ** (`triage/memory/backends/ax.py`) — `ax` CLI `spans export` + a pure parser
+  over AX's flat-dotted-attribute JSON → `list[PriorAttempt]`. Live-verified.
+- **EVAL** (`triage/eval/run_eval.py`) — `spans.update_evaluations` writes
+  `eval.<name>.label/score/explanation` by `context.span_id`, captured **in-process**
+  by `RunTrace.span_ids` (no lagging query-back). Live-verified (`spans_updated`, 0 errors).
+- Selector seam `triage/memory/history.py`; `PriorAttempt` contract `types.py`.
+  `distill_hint`, `load_learned_context`, parser/driver injections — unchanged.
 
-`distill_hint`, `load_learned_context`, and the parser/driver injections are fully
-backend-agnostic and need no change for the migration.
+> **AX index lag:** by-`--trace-id` lookups are immediate (primary store); filter/time
+> queries lag ~6–12h and eval **visibility** lags ~1–2h. Eval/span **writes** are
+> immediate — only read-back/UI visibility lags.
 
 **Verify.** `.venv/bin/pytest` (153). Live: `load_learned_context` returns a real
 hint from prior Phoenix traces. Booth A/B at the demo: `TRIAGE_OUTER_LOOP=1` →

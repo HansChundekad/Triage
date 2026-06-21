@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 """Phase 7B standalone re-scorer.
 
-Re-runs `run_eval` over an EXISTING run directory + the existing Phoenix project,
-without spinning a fresh browser run. Use it to (re)score attempts after a live
-run, or to iterate on the judges against captured evidence.
+Re-runs `run_eval` over an EXISTING run directory without spinning a fresh browser
+run. Use it to (re)score attempts after a live run, or to iterate on the judges
+against captured evidence.
+
+NOTE (Phoenix→AX migration): the in-loop eval write attaches to live AX spans via
+in-process span-ids (see triage.tracing.run_context). This standalone re-scorer has
+no live spans, so it recomputes scores but cannot re-attach them to AX — the eval
+*write* requires the harness path (scripts/phase7_traced_run.py). The judge scores
+it prints are still authoritative for inspecting/iterating on the judges.
 
 Usage:
     .venv/bin/python scripts/phase7_eval.py <run_dir> [--root-cause "..."]

@@ -238,9 +238,9 @@ class RunRegistry:
 def _guarded_eval_scores(cfg, artifacts, hypothesis_root_cause: str) -> dict | None:
     """Final-attempt LLM-judge scores for the report, or None. Never raises.
 
-    Decoupled from Phoenix span-logging: run_eval's ``_log_to_spans`` needs a live
-    collector, but the report only needs the scores. So we drive the proven pure
-    path directly (build_eval_dataframe → score_attempts via the Anthropic judge).
+    Decoupled from Arize AX span-logging: run_eval's eval write needs live spans,
+    but the report only needs the scores. So we drive the proven pure path directly
+    (build_eval_dataframe → score_attempts via the Anthropic judge).
     """
     try:
         from triage.eval.run_eval import build_eval_dataframe, score_attempts
