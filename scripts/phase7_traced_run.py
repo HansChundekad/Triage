@@ -152,6 +152,12 @@ async def main(force_retry: bool = False) -> int:
         await parser.connect(room_id=room_id)
         await hypothesis.connect(room_id=room_id)
         await asyncio.sleep(STABILISE)
+        print(
+            f"\n  💬 Band room id: {room_id}\n"
+            "     Watch the transcript live in THIS console (💬 lines below), or open\n"
+            "     this room in the Band web app (https://app.band.ai).",
+            flush=True,
+        )
 
         banner(f"ISSUE → PARSE  ({cfg.github_issue_url})")
         hint = load_learned_context(cfg)
@@ -229,11 +235,18 @@ async def main(force_retry: bool = False) -> int:
             print(f"[phase7] synthesis step failed (non-fatal): {exc}")
 
         banner("RUN SUMMARY")
-        verdict = "REPRODUCED ✅" if repro_state.terminal and repro_state.attempts else "not terminal ⚠️"
-        print(f"  verdict: {verdict}   attempts: {repro_state.attempts}/{repro_state.max_attempts}")
+        # Read the persisted attempts (source of truth): repro_state.attempts and
+        # .session_urls reset on the redirect_parser re-parse, so they under-report
+        # a fail→succeed run. artifacts.attempts.json keeps every attempt.
+        all_attempts = artifacts.load_attempts()
+        flips = [bool(a.get("bug_detected")) for a in all_attempts]
+        verdict = "REPRODUCED ✅" if any(flips) else "not reproduced ⚠️"
+        print(f"  verdict: {verdict}   attempts this run: {len(all_attempts)}")
+        if len(flips) > 1:
+            print(f"  honest bug.detected flip: {' → '.join(str(f) for f in flips)}")
         print("  Browserbase sessions (one per attempt — live during run, replay after):")
-        for i, url in enumerate(repro_state.session_urls, 1):
-            print(f"    attempt {i}: {url}")
+        for i, a in enumerate(all_attempts, 1):
+            print(f"    attempt {i}: bug_detected={a.get('bug_detected')}  {a.get('session_url', '')}")
         print("\n  📊 Arize AX — open the hero trace now:")
         print(f"     project : {cfg.arize_project_name}  (backend: {cfg.trace_backend})")
         print(f"     trace_id: {run.trace_id}")
