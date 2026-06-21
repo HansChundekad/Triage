@@ -56,8 +56,11 @@ def assemble_report(model_output: dict, *, issue: dict, attempts: list[dict],
         repro_steps=[ReproStep(**s) for s in model_output["repro_steps"]],
         root_cause=RootCause(**model_output["root_cause"]),
         evidence=Evidence(**model_output["evidence"]),
-        attempts=[Attempt(number=a["attempt"], session_replay_url=a.get("session_url", ""),
-                          bug_detected=bool(a.get("bug_detected"))) for a in attempts],
+        # Number attempts sequentially in capture order: a redirect resets the
+        # loop's counter, so the recorded "attempt" values can repeat (e.g. 1, 1).
+        attempts=[Attempt(number=i, session_replay_url=a.get("session_url", ""),
+                          bug_detected=bool(a.get("bug_detected")))
+                  for i, a in enumerate(attempts, start=1)],
         eval_scores=EvalScores(**eval_scores) if eval_scores else None,
         generated_at=now,
     )

@@ -48,6 +48,21 @@ def test_assemble_report_merges_server_fields_and_validates():
     assert d["generated_at"] == "2026-06-20T00:00:00Z"
 
 
+def test_assemble_report_numbers_attempts_sequentially():
+    """A redirect resets the loop's attempt counter, so both recorded attempts can
+    carry attempt=1. The report must still number them 1, 2… in capture order."""
+    reset_quirk = [
+        {**_ATTEMPTS[0], "attempt": 1},
+        {**_ATTEMPTS[1], "attempt": 1},  # second cycle restarted at 1
+    ]
+    d = assemble_report(_MODEL_OUTPUT, issue=_ISSUE, attempts=reset_quirk,
+                        eval_scores=None, now="2026-06-20T00:00:00Z").to_dict()
+    assert [a["number"] for a in d["attempts"]] == [1, 2]
+    # order preserved: fail then succeed
+    assert d["attempts"][0]["bug_detected"] is False
+    assert d["attempts"][1]["bug_detected"] is True
+
+
 def test_assemble_report_without_eval_scores_is_valid():
     report = assemble_report(_MODEL_OUTPUT, issue=_ISSUE, attempts=_ATTEMPTS,
                              eval_scores=None, now="2026-06-20T00:00:00Z")

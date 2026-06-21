@@ -38,6 +38,22 @@ _FORCED_BROKEN_STEPS = [
 ]
 
 
+def attach_diagnosis_capture(agent) -> dict:
+    """Record HypothesisAgent's latest outbound message so eval + synthesis judge
+    the REAL diagnosed root cause, not an empty string. Mirrors the tap in
+    backend/run_manager.py. Returns a holder whose 'text' is the last message sent.
+    """
+    holder = {"text": ""}
+    orig_send = agent.send_message
+
+    async def send(mentions, text):
+        holder["text"] = text
+        return await orig_send(mentions, text)
+
+    agent.send_message = send  # type: ignore[method-assign]
+    return holder
+
+
 async def main(force_retry: bool = False) -> int:
     cfg = load_config()
     tracer = setup_tracing(cfg)
@@ -82,6 +98,9 @@ async def main(force_retry: bool = False) -> int:
                 run_trace=run,
             ),
         )
+        # Capture the diagnosis so eval + synthesis judge the real root cause (not
+        # ""). Wrap before connect so every HypothesisAgent outbound is recorded.
+        diagnosis = attach_diagnosis_capture(hypothesis)
 
         room_id = await repro.connect(room_id=cfg.band_room_id)
         if cfg.band_room_id is None:
@@ -116,7 +135,8 @@ async def main(force_retry: bool = False) -> int:
         try:
             from triage.eval.run_eval import run_eval
 
-            scored = run_eval(cfg, repro_state, artifacts, hypothesis_root_cause="")
+            scored = run_eval(cfg, repro_state, artifacts,
+                              hypothesis_root_cause=diagnosis["text"])
             if scored.empty:
                 print("[phase7] eval: no attempts to score")
             else:
@@ -149,7 +169,8 @@ async def main(force_retry: bool = False) -> int:
                 }
             report_path = synthesize_run(
                 cfg, artifacts, client=hypothesis_anthropic, issue=issue_dict,
-                hypothesis_root_cause="", eval_scores=eval_scores, run_trace=run)
+                hypothesis_root_cause=diagnosis["text"], eval_scores=eval_scores,
+                run_trace=run)
             print(f"[phase7] report written: {report_path}")
         except Exception as exc:  # noqa: BLE001 — synthesis must never wedge the demo
             print(f"[phase7] synthesis step failed (non-fatal): {exc}")
