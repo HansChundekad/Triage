@@ -42,6 +42,7 @@ class Config:
     band_room_id: str | None
     app_url: str
     github_issue_url: str
+    outer_loop_enabled: bool
 
 
 _REQUIRED = (
@@ -58,6 +59,13 @@ _REQUIRED = (
     "TRIAGE_APP_URL",
     "TRIAGE_GITHUB_ISSUE_URL",
 )
+
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _parse_bool(raw: str | None) -> bool:
+    return (raw or "").strip().lower() in _TRUTHY
 
 
 def load_config(load_env: bool = True) -> Config:
@@ -106,4 +114,5 @@ def load_config(load_env: bool = True) -> Config:
         band_room_id=env.get("BAND_ROOM_ID") or None,
         app_url=env["TRIAGE_APP_URL"],
         github_issue_url=env["TRIAGE_GITHUB_ISSUE_URL"],
+        outer_loop_enabled=_parse_bool(env.get("TRIAGE_OUTER_LOOP")),
     )

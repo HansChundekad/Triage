@@ -93,3 +93,24 @@ def test_band_room_id_empty_string_is_none(monkeypatch):
     monkeypatch.setenv("BAND_ROOM_ID", "")
     cfg = load_config(load_env=False)
     assert cfg.band_room_id is None
+
+
+def test_outer_loop_defaults_off(monkeypatch):
+    _set_all(monkeypatch)
+    monkeypatch.delenv("TRIAGE_OUTER_LOOP", raising=False)
+    cfg = load_config(load_env=False)
+    assert cfg.outer_loop_enabled is False
+
+
+@pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on"])
+def test_outer_loop_truthy_values_enable(monkeypatch, raw):
+    _set_all(monkeypatch)
+    monkeypatch.setenv("TRIAGE_OUTER_LOOP", raw)
+    assert load_config(load_env=False).outer_loop_enabled is True
+
+
+def test_outer_loop_not_required(monkeypatch):
+    # Absent TRIAGE_OUTER_LOOP must NOT make config fail to load.
+    _set_all(monkeypatch)
+    monkeypatch.delenv("TRIAGE_OUTER_LOOP", raising=False)
+    load_config(load_env=False)  # does not raise
