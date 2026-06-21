@@ -84,6 +84,7 @@ def diagnose(evidence_text: str, client, model: str = MODEL) -> Diagnosis:
         A Diagnosis. Blocking/synchronous — call via asyncio.to_thread from
         async code so the WebSocket event loop is not stalled.
     """
+    # Evidence text format is produced by triage/repro_agent/echo.py::format_result_message
     response = client.messages.create(
         model=model,
         max_tokens=2048,
