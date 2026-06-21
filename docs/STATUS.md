@@ -155,8 +155,11 @@ asserts only what the traces support + a generic precondition nudge.
 timeout, or empty history → returns `None` → the proven inner loop runs unchanged
 (byte-identical). One bounded `ThreadPoolExecutor.result(timeout)` call at run start;
 a hung backend worker is abandoned (`shutdown(wait=False, cancel_futures=True)`), so
-it can never block a run. Each driver injection is a single deletable block. The
-inner loop (`loop.py`/`echo.py`/`reasoning.py`) and `band.py` are untouched.
+it can never block a run. **Cut-path:** flip the flag OFF, or delete the injection at
+each driver — booth (`run_manager.py`) is a single deletable block (`maybe_inject_…`
+fn + the `prior_context=` kwarg); harness (`phase7_traced_run.py`) is delete the
+`hint = …` / `if hint:` block **and** restore `elif force_retry:` → `if force_retry:`.
+The inner loop (`loop.py`/`echo.py`/`reasoning.py`) and `band.py` are untouched.
 
 **Backend split (Phoenix → Arize AX migration).** The sponsor judges on **Arize AX**
 (`app.arize.com`), not the open-source Phoenix surface we instrumented against. A
