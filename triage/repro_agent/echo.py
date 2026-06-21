@@ -14,6 +14,7 @@ import logging
 
 from triage.config import load_config
 from triage.repro_agent.browser import run_repro
+from triage.repro_agent.loop import parse_steps
 from triage.shared.band import BandAgent, ReproResultPayload
 
 logger = logging.getLogger(__name__)
@@ -47,16 +48,21 @@ async def handle_parser_message(payload, agent) -> None:
     print(f"    {payload.content!r}")
 
     if _sender_is_hypothesis(sender):
-        print("[ReproAgent] sender is HypothesisAgent — ignoring (retry logic is Phase 6).")
+        print("[ReproAgent] sender is HypothesisAgent — ignoring (retry logic is Task 2).")
         return
 
-    print("[ReproAgent] launching real Browserbase session…")
+    steps = parse_steps(payload.content)
+    if not steps:
+        print("[ReproAgent] no numbered steps in message — ignoring.")
+        return
+
+    print(f"[ReproAgent] parsed {len(steps)} steps — launching real Browserbase session…")
     cfg = load_config()
 
     await agent.send_event("Starting Browserbase repro session", "task")
 
     try:
-        result = await run_repro(cfg)
+        result = await run_repro(cfg, steps)
     except Exception as exc:  # noqa: BLE001
         logger.error("[ReproAgent] browser execution failed: %s", exc)
         await agent.send_event(f"Browser execution error: {exc}", "error")

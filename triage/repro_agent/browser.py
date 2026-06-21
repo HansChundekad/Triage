@@ -67,58 +67,28 @@ def detect_bug(body_text: str, console_errors: list[str]) -> DetectionResult:
 
 
 # ---------------------------------------------------------------------------
-# Repro steps — hardcoded for Phase 4 (real parsing arrives in Phase 5)
-# Each tuple: (label, observe_instruction_or_None, act_instruction)
-# ---------------------------------------------------------------------------
-
-_STEPS: list[tuple[str, str | None, str]] = [
-    (
-        "focus input",
-        "find the task text input field",
-        "click the task text input field to focus it",
-    ),
-    (
-        "type task",
-        None,  # no observe needed — just type into the focused field
-        "type 'test task' into the focused input field",
-    ),
-    (
-        "click add",
-        "find the Add button to submit the task",
-        "click the Add button to add the task to the list",
-    ),
-    (
-        "click delete",
-        "find the Delete button next to the task item",
-        "click the Delete button to remove the task",
-    ),
-    (
-        "confirm delete",
-        "find the confirmation popup with yes and no options",
-        "click the Yes button to confirm deletion of the task",
-    ),
-]
-
-
-# ---------------------------------------------------------------------------
 # Part 1 — browser execution
 # ---------------------------------------------------------------------------
 
 
-async def run_repro(cfg: "Config") -> ReproResultPayload:
-    """Open a real Browserbase session, execute repro steps, return evidence.
+async def run_repro(cfg: "Config", steps: list[str], tweak: str | None = None) -> ReproResultPayload:
+    """Open a fresh Browserbase session, execute `steps`, return evidence.
+
+    `steps` are natural-language instructions from ParserAgent (one Stagehand
+    observe+act per step). `tweak`, when set, is retry guidance from
+    HypothesisAgent appended to each act instruction.
 
     Session lifecycle (per TRIAGE_INTEGRATIONS.md §2.4):
       1. start session  → get session_id + cdp_url
       2. connect Playwright CDP → register console listeners
       3. navigate to live app
-      4. for each step: observe (if applicable) → act → screenshot
+      4. for each step: observe → act → screenshot
       5. extract body text
       6. detect bug
       7. end session + disconnect Playwright
       8. return ReproResultPayload
 
-    A new Browserbase session is created every call — never reused.
+    A new Browserbase session is created every call — never reused (§2.4).
     """
     from stagehand import AsyncStagehand
     from playwright.async_api import async_playwright
@@ -172,24 +142,25 @@ async def run_repro(cfg: "Config") -> ReproResultPayload:
             evidence.append(f"Navigated to: {cfg.app_url}")
 
             # --- 4. Execute repro steps: observe → act → screenshot ---
-            for step_label, observe_instr, act_instr in _STEPS:
-                logger.info("[ReproAgent] step: %s", step_label)
+            for index, step in enumerate(steps, start=1):
+                step_label = f"step {index}: {step[:48]}"
+                act_instr = step if not tweak else f"{step}. Adjustment for this retry: {tweak}"
+                logger.info("[ReproAgent] %s", step_label)
 
-                if observe_instr:
-                    obs = await session.observe(instruction=observe_instr)
-                    found = obs.data.result
-                    if not found:
-                        msg = f"Step '{step_label}': observe found no elements for: {observe_instr!r}"
-                        logger.warning("[ReproAgent] %s", msg)
-                        evidence.append(f"WARN — {msg}")
-                    else:
-                        evidence.append(f"Step '{step_label}': found {len(found)} element(s)")
+                obs = await session.observe(instruction=step)
+                found = obs.data.result
+                if not found:
+                    msg = f"{step_label}: observe found no elements for: {step!r}"
+                    logger.warning("[ReproAgent] %s", msg)
+                    evidence.append(f"WARN — {msg}")
+                else:
+                    evidence.append(f"{step_label}: found {len(found)} element(s)")
 
                 act_result = await session.act(input=act_instr)
                 act_ok = act_result.data.result.success
                 act_msg = act_result.data.result.message
                 evidence.append(
-                    f"Step '{step_label}' act: {'OK' if act_ok else 'FAIL'} — {act_msg}"
+                    f"{step_label} act: {'OK' if act_ok else 'FAIL'} — {act_msg}"
                 )
                 logger.info(
                     "[ReproAgent] act '%s': %s — %s",

@@ -62,7 +62,10 @@ def _msg(sender_name):
         sender_name=sender_name,
         sender_id="peer-id",
         chat_room_id="room-id",
-        content="1. Open app  2. Add todo  3. Delete it  4. observe blank screen",
+        content=(
+            "@ReproAgent repro steps for url:\n"
+            "1. Open app\n2. Add todo\n3. Delete it\n4. Observe blank screen"
+        ),
     )
 
 
@@ -78,15 +81,19 @@ def _fake_result():
 def test_handler_sends_one_message_to_hypothesis():
     agent = _FakeAgent()
     fake_cfg = MagicMock()
+    fake_run = AsyncMock(return_value=_fake_result())
     with (
         patch("triage.repro_agent.echo.load_config", return_value=fake_cfg),
-        patch("triage.repro_agent.echo.run_repro", new=AsyncMock(return_value=_fake_result())),
+        patch("triage.repro_agent.echo.run_repro", new=fake_run),
     ):
         asyncio.run(handle_parser_message(_msg("hanschundekad/parseragent"), agent))
     assert len(agent.messages) == 1
     mentions, text = agent.messages[0]
     assert mentions == ["HypothesisAgent"]
     assert "@hanschundekad/hypothesisagent" in text
+    # steps were parsed from the numbered block and passed positionally
+    called_steps = fake_run.call_args.args[1]
+    assert called_steps == ["Open app", "Add todo", "Delete it", "Observe blank screen"]
     assert len(agent.events) == 2            # "Starting…" + "Repro complete…"
     assert agent.events[0][1] == "task"
     assert agent.events[1][1] == "task"
