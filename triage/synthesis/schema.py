@@ -50,10 +50,7 @@ class ReproReport:
     generated_at: str
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        if self.eval_scores is None:
-            d["eval_scores"] = None
-        return d
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ReproReport":

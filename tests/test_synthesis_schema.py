@@ -39,6 +39,15 @@ def test_validate_report_accepts_valid_and_rejects_bad():
         validate_report(bad)
 
 
+def test_roundtrip_with_null_eval_scores():
+    d = _valid_dict()
+    d["eval_scores"] = None
+    report = ReproReport.from_dict(d)
+    assert report.eval_scores is None
+    assert report.to_dict() == d
+    validate_report(report.to_dict())
+
+
 def test_published_schema_file_matches_module():
     published = json.loads(Path("docs/superpowers/specs/phase7-report.schema.json").read_text())
     assert published == REPORT_JSON_SCHEMA  # lockstep contract
