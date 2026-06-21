@@ -124,12 +124,16 @@ async def _run_attempt(cfg, state: ReproLoopState, agent, tweak: str | None, *, 
     artifacts = artifacts if artifacts is not None else NullRunArtifacts()
 
     state.attempts += 1
+    # Run-unique id: attempt.number resets to 1 on a redirect_parser re-parse, so it
+    # can't key the span lookup or the eval join (both would collide and only one
+    # attempt would get scored). new_attempt_id is monotonic across the whole run.
+    attempt_id = run_trace.new_attempt_id()
     await agent.send_event(
         f"Starting Browserbase repro attempt {state.attempts}/{state.max_attempts}"
         + (f" (tweak: {tweak})" if tweak else ""),
         "task",
     )
-    with run_trace.attempt_span(state.attempts) as attempt_span:
+    with run_trace.attempt_span(state.attempts, attempt_id=attempt_id) as attempt_span:
         if attempt_span is not None:
             attempt_span.set_attribute("github.issue_url", cfg.github_issue_url)
             attempt_span.set_attribute("app.url", cfg.app_url)
@@ -159,6 +163,7 @@ async def _run_attempt(cfg, state: ReproLoopState, agent, tweak: str | None, *, 
         state.session_urls.append(result.session_url)  # keep replay URL (Phase 7)
     artifacts.record_attempt({
         "attempt": state.attempts,
+        "attempt_id": attempt_id,
         "steps": list(state.steps),
         "evidence": result.evidence,
         "console_errors": result.console_errors,

@@ -51,6 +51,8 @@ def build_eval_dataframe(attempts, issue_text, hypothesis_root_cause) -> pd.Data
         rc = build_root_cause_input(issue_text, hypothesis_root_cause)
         rows.append({
             "attempt_number": a["attempt"],
+            # run-unique join key (falls back to attempt for pre-fix run dirs)
+            "attempt_id": a.get("attempt_id", a["attempt"]),
             "input": issue_text,
             "fidelity_output": fid["output"],
             "root_cause_reference": rc["reference"],
@@ -173,7 +175,10 @@ def build_eval_records(scored, span_lookup) -> pd.DataFrame:
     """
     rows = []
     for _, r in scored.iterrows():
-        sid = span_lookup.get(int(r["attempt_number"]))
+        # join on the run-unique attempt id (falls back to attempt_number for callers
+        # that don't supply one) so redirect_parser attempts don't collide on span id
+        join_key = r.get("attempt_id", r["attempt_number"])
+        sid = span_lookup.get(int(join_key))
         if not sid:
             continue
         rows.append({

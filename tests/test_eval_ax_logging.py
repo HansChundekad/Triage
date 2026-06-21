@@ -98,3 +98,22 @@ def test_build_eval_records_drops_attempts_without_a_span_id():
 def test_build_eval_records_empty_when_no_overlap():
     df = build_eval_records(_scored(), {})
     assert df.empty
+
+
+def test_build_eval_records_joins_on_attempt_id_not_attempt_number():
+    """On a redirect_parser run both attempts share attempt_number==1; the join must
+    use the run-unique attempt_id so each maps to its own span (no collision)."""
+    scored = pd.DataFrame([
+        {"attempt_number": 1, "attempt_id": 1, "repro_fidelity_label": "not_reproduced",
+         "repro_fidelity_score": 0.0, "root_cause_label": "incorrect",
+         "root_cause_score": 0.0, "honesty_label": "honest", "honesty_score": 1.0,
+         "honesty_explanation": "consistent"},
+        {"attempt_number": 1, "attempt_id": 2, "repro_fidelity_label": "reproduced",
+         "repro_fidelity_score": 1.0, "root_cause_label": "correct",
+         "root_cause_score": 1.0, "honesty_label": "honest", "honesty_score": 1.0,
+         "honesty_explanation": "consistent"},
+    ])
+    df = build_eval_records(scored, {1: "aaa", 2: "bbb"})
+    assert list(df["context.span_id"]) == ["aaa", "bbb"]
+    assert df.loc[df["context.span_id"] == "aaa", "eval.repro_fidelity.label"].iloc[0] == "not_reproduced"
+    assert df.loc[df["context.span_id"] == "bbb", "eval.repro_fidelity.label"].iloc[0] == "reproduced"
