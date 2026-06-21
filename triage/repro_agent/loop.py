@@ -102,3 +102,23 @@ class ReproLoopState:
         self.attempts = 0
         self.terminal = False
         self.session_urls = []
+
+
+# HypothesisAgent handle for the directed give-up message (must match the
+# handle used in echo.format_result_message — both point at HypothesisAgent).
+_HYPOTHESIS_HANDLE = "@hanschundekad/hypothesisagent"
+
+
+def format_giveup_message(state: ReproLoopState) -> str:
+    """Final 'could not reproduce' message when the retry cap is reached.
+
+    @mentions HypothesisAgent (required for visibility) and lists every
+    attempt's session replay URL so Phase 7 can trace the full progression.
+    """
+    lines = [
+        f"{_HYPOTHESIS_HANDLE} could not reproduce after {state.attempts} attempt(s). "
+        f"Stopping — retry cap ({state.max_attempts}) reached.",
+        "session replays:",
+        *[f"  - {url}" for url in state.session_urls],
+    ]
+    return "\n".join(lines)

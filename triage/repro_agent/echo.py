@@ -18,6 +18,7 @@ from triage.repro_agent.loop import (
     ReproLoopState,
     classify_message,
     extract_tweak,
+    format_giveup_message,
     parse_steps,
 )
 from triage.shared.band import BandAgent, ReproResultPayload
@@ -61,16 +62,34 @@ def make_repro_callback(cfg, state: ReproLoopState | None = None):
             cfg.band_parser.agent_id, cfg.band_hypothesis.agent_id,
         )
 
+        # A fresh Parser steps message always starts a new capped cycle —
+        # even after a terminal state (this is the redirect_parser re-parse
+        # path; ReproAgent's cap bounds each repro cycle, not the global loop).
         if kind == "steps":
             state.reset(parse_steps(payload.content))
             print(f"[ReproAgent] parsed {len(state.steps)} steps — starting cycle.")
             await _run_attempt(cfg, state, agent, tweak=None)
+            return
 
-        elif kind == "redirect":
-            if not state.steps or state.attempts_exhausted:
-                # No cycle in progress, or cap reached — Task 3 finalizes the
-                # terminal give-up message here. Minimal safe stop for now.
-                print("[ReproAgent] redirect ignored (no steps or cap reached).")
+        # Once terminal (confirmed OR gave up), ignore every other message so
+        # the loop can NEVER spin — even if HypothesisAgent keeps redirecting.
+        if state.terminal:
+            print(f"[ReproAgent] loop terminal — ignoring {kind}.")
+            return
+
+        if kind == "redirect":
+            if not state.steps:
+                print("[ReproAgent] redirect ignored (no cycle in progress).")
+                return
+            if state.attempts_exhausted:
+                # Hard cap reached: latch terminal and post the final give-up.
+                state.terminal = True
+                await agent.send_event(
+                    f"Retry cap reached ({state.max_attempts} attempts) — giving up",
+                    "task",
+                )
+                await agent.send_message(["HypothesisAgent"], format_giveup_message(state))
+                print("[ReproAgent] cap reached — posted give-up, loop terminal.")
                 return
             tweak = extract_tweak(payload.content)
             await agent.send_event(
@@ -81,8 +100,11 @@ def make_repro_callback(cfg, state: ReproLoopState | None = None):
             await _run_attempt(cfg, state, agent, tweak=tweak)
 
         elif kind == "confirm":
-            # Task 3 latches terminal here.
-            print("[ReproAgent] HypothesisAgent confirmed — cycle complete.")
+            state.terminal = True
+            await agent.send_event(
+                "Bug confirmed by HypothesisAgent — repro loop complete", "task"
+            )
+            print("[ReproAgent] confirmed — loop terminal.")
 
         else:
             print(f"[ReproAgent] ignoring message (kind={kind}).")

@@ -5,6 +5,7 @@ from triage.repro_agent.loop import (
     extract_tweak,
     ReproLoopState,
     MAX_REPRO_ATTEMPTS,
+    format_giveup_message,
 )
 
 # Mirrors ParserAgent.format_steps_message output exactly.
@@ -89,3 +90,11 @@ def test_loop_state_reset_and_exhaustion():
     assert state.steps == ["a", "b"] and state.attempts == 0 and state.terminal is False
     state.attempts = state.max_attempts
     assert state.attempts_exhausted is True
+
+
+def test_format_giveup_message_lists_session_urls():
+    state = ReproLoopState(attempts=3, session_urls=["url-a", "url-b", "url-c"])
+    msg = format_giveup_message(state)
+    assert "@hanschundekad/hypothesisagent" in msg
+    assert "could not reproduce after 3" in msg
+    assert "url-a" in msg and "url-b" in msg and "url-c" in msg
