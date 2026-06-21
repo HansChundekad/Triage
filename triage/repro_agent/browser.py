@@ -15,6 +15,8 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 # Body text shorter than this (after stripping) is considered blank/crashed.
+# 10 chosen so the test fixture "My Tasks\n  test task\nAdd Delete" (34 chars)
+# is correctly classified as non-blank; a real crash page renders ~0 chars.
 BLANK_BODY_THRESHOLD = 10
 
 # The expected JavaScript crash fingerprint (substring match).
