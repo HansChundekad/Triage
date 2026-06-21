@@ -148,6 +148,23 @@ class BandAgent:
     # Sending
     # ------------------------------------------------------------------
 
+    async def add_participant(self, name: AgentName) -> None:
+        """Add another agent as a participant in this room."""
+        if self._link is None or self._room_id is None:
+            raise RuntimeError(f"[{self.name}] call connect() before add_participant()")
+
+        from band.client.rest import ParticipantRequest, DEFAULT_REQUEST_OPTIONS
+
+        await self._link.rest.agent_api_participants.add_agent_chat_participant(
+            chat_id=self._room_id,
+            participant=ParticipantRequest(
+                participant_id=_AGENT_IDS[name],
+                role="member",
+            ),
+            request_options=DEFAULT_REQUEST_OPTIONS,
+        )
+        logger.info("[%s] added %s to room %s", self.name, name, self._room_id)
+
     async def send_message(self, mentions: list[AgentName], text: str) -> None:
         """Send a directed message. At least one mention is required."""
         if not mentions:
