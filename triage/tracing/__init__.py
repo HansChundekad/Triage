@@ -1,1 +1,1 @@
-"""Arize Phoenix tracing substrate (Phase 7A). Optional + no-op by default."""
+"""Arize AX tracing substrate (Phase 7A; Phoenix fallback). Optional + no-op by default."""
